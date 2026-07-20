@@ -1,5 +1,4 @@
 name: Build and Deploy gogateway
-
 on:
   push:
     branches: [dev]
