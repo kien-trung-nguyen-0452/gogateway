@@ -1,0 +1,19 @@
+[Unit]
+Description=Go ClickHouse Gateway (gogateway)
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/gogateway/gogateway.env
+ExecStart=/usr/local/bin/gogateway
+Restart=on-failure
+RestartSec=5
+User=gogateway
+Group=gogateway
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/tmp
+
+[Install]
+WantedBy=multi-user.target
