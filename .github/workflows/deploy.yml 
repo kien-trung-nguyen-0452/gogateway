@@ -1,0 +1,66 @@
+name: Build and Deploy gogateway
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:   # cho phep bam chay tay tu GitHub UI khi can
+
+jobs:
+  build-and-deploy:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Build binary
+        run: |
+          go mod tidy
+          go build -o gogateway ./cmd/server
+
+      # ------------------------------------------------------------------
+      # Ghi file env TU SECRETS cua GitHub - KHONG bao gio commit password
+      # vao repo. File nay chi ton tai tren server, quyen 600 (chi root doc
+      # duoc), khong nam trong thu muc checkout code (tranh vo tinh commit
+      # nham vao git sau nay).
+      # ------------------------------------------------------------------
+      - name: Write environment file
+        run: |
+          sudo mkdir -p /etc/gogateway
+          cat << EOF | sudo tee /etc/gogateway/gogateway.env > /dev/null
+          CH_HOST=${{ secrets.CH_HOST }}
+          CH_PORT=${{ secrets.CH_PORT }}
+          CH_USER=${{ secrets.CH_USER }}
+          CH_PASSWORD=${{ secrets.CH_PASSWORD }}
+          CH_DATABASE=${{ secrets.CH_DATABASE }}
+          HTTP_PORT=8089
+          EOF
+          sudo chmod 600 /etc/gogateway/gogateway.env
+          sudo chown root:root /etc/gogateway/gogateway.env
+
+      - name: Install binary
+        run: |
+          sudo systemctl stop gogateway || true
+          sudo cp gogateway /usr/local/bin/gogateway
+          sudo chmod +x /usr/local/bin/gogateway
+
+      - name: Install/refresh systemd unit
+        run: |
+          sudo cp gogateway.service /etc/systemd/system/gogateway.service
+          sudo systemctl daemon-reload
+
+      - name: Restart service
+        run: |
+          sudo systemctl enable gogateway
+          sudo systemctl restart gogateway
+          sleep 2
+          sudo systemctl status gogateway --no-pager
+
+      - name: Health check
+        run: |
+          curl -f http://localhost:8089/healthz || (echo "Health check FAILED" && exit 1)
