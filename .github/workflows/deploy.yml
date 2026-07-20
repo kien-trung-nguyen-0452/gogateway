@@ -1,4 +1,5 @@
 name: Build and Deploy gogateway
+
 on:
   push:
     branches: [dev]
@@ -16,6 +17,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
+          cache: false   # tat cache - self-hosted runner upload cache len GitHub bi treo/nghen mang
 
       - name: Build binary
         run: |
@@ -28,6 +30,15 @@ jobs:
       # duoc), khong nam trong thu muc checkout code (tranh vo tinh commit
       # nham vao git sau nay).
       # ------------------------------------------------------------------
+      - name: Ensure gogateway system user exists
+        run: |
+          if ! id gogateway &>/dev/null; then
+            sudo useradd --system --no-create-home --shell /usr/sbin/nologin gogateway
+            echo "Da tao user 'gogateway'"
+          else
+            echo "User 'gogateway' da ton tai, bo qua"
+          fi
+
       - name: Write environment file
         run: |
           sudo mkdir -p /etc/gogateway
