@@ -15,7 +15,7 @@ func NewHandler(service *Service) *Handler {
 }
 
 type RequestBody struct {
-	CompanyIDs               []string `json:"companyIds"`
+	CompanyIDs               []string `json:"companyId"`
 	PrimaryCompanyID         string   `json:"primaryCompanyId"`
 	RepositoryIDs            []string `json:"repositoryIds"`
 	MaterialGoodsIDs         []string `json:"materialGoodsIds"`
