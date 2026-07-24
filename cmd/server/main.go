@@ -7,6 +7,7 @@ import (
 	"softdream.vn/go-gateway/internal/api"
 	"softdream.vn/go-gateway/internal/chclient"
 	"softdream.vn/go-gateway/internal/config"
+	"softdream.vn/go-gateway/internal/reports/so-chi-tiet-vat-lieu-hang-hoa"
 	"softdream.vn/go-gateway/internal/reports/tichluy"
 )
 
@@ -27,7 +28,10 @@ func main() {
 	tichLuyService := tichluy.NewService(conn)
 	tichLuyHandler := tichluy.NewHandler(tichLuyService)
 
-	mux := api.NewRouter(tichLuyHandler)
+	soChiTietService := so_chi_tiet_vat_lieu_hang_hoa.NewService(conn)
+	soChiTietHandler := so_chi_tiet_vat_lieu_hang_hoa.NewHandler(soChiTietService)
+
+	mux := api.NewRouter(tichLuyHandler, soChiTietHandler)
 
 	addr := ":" + cfg.HTTPPort
 	log.Printf("Go satellite dang chay tai %s", addr)

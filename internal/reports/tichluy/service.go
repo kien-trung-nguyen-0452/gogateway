@@ -25,11 +25,6 @@ const (
 	maxYear = 2100
 )
 
-// Service chua business logic thuan tuy, KHONG phu thuoc vao transport
-// (HTTP/gRPC). Day la diem then chot de sau nay migrate sang gRPC theo
-// Strangler Fig: chi can viet them 1 grpc handler goi lai dung Service nay,
-// khong phai sua logic ben trong.
-// day la test thu
 type Service struct {
 	conn clickhouse.Conn
 }
