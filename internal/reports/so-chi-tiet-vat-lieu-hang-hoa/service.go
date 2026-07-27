@@ -37,6 +37,7 @@ type QueryParams struct {
 	FromDate                 string
 	ToDate                   string
 	ParamCheckAll            bool // true = bỏ filter RepositoryID + MaterialGoodsID
+	GetAccountHasData        bool
 }
 
 func (s *Service) GetSoChiTiet(ctx context.Context, p QueryParams) ([]Row, int64, error) {
@@ -62,6 +63,13 @@ func (s *Service) GetSoChiTiet(ctx context.Context, p QueryParams) ([]Row, int64
 		)
 	}
 
+	accountFilter := ""
+	if !p.GetAccountHasData {
+		accountFilter = fmt.Sprint(
+			"WHERE InwardQuantity <> 0 OR InwardAmount <> 0\n   OR OutwardQuantity <> 0 OR OutwardAmount <> 0\n   Or Reason = 'Số dư đầu kỳ'",
+		)
+	}
+
 	sql := queryTemplate
 	sql = strings.ReplaceAll(sql, "{{TO_DATE}}", p.ToDate)
 	sql = strings.ReplaceAll(sql, "{{FROM_DATE}}", p.FromDate)
@@ -72,6 +80,7 @@ func (s *Service) GetSoChiTiet(ctx context.Context, p QueryParams) ([]Row, int64
 	sql = strings.ReplaceAll(sql, "{{OWN_REPOSITORY_IDS}}", quoteJoin(p.OwnRepositoryIDs))
 	sql = strings.ReplaceAll(sql, "{{OTHER_REPOSITORY_IDS}}", quoteJoin(p.OtherRepositoryIDs))
 	sql = strings.ReplaceAll(sql, "{{IS_COMPANY_BUSINESS_TYPE_GAS}}", fmt.Sprintf("%d", p.IsCompanyBusinessTypeGas))
+	sql = strings.ReplaceAll(sql, "{{ACCOUNT_HAS_DATA_FILTER}}", accountFilter)
 
 	start := time.Now()
 

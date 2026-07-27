@@ -25,6 +25,7 @@ type RequestBody struct {
 	FromDate                 string   `json:"fromDate"`
 	ToDate                   string   `json:"toDate"`
 	ParamCheckAll            bool     `json:"paramCheckAll"` // true = lấy tất cả kho + hàng hóa
+	GetAccountHasData        bool     `json:"getAccountHasData"`
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
