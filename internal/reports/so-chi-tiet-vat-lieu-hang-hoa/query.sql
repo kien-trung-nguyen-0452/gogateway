@@ -172,6 +172,7 @@ SELECT
     if(Reason = 'Số dư đầu kỳ', NULL, dictGetOrDefault('eb.dict_statistics_code', 'statistics_code_name', StatisticsCodeID, '')) AS StatisticsCodeName
 
 FROM running
+{{ACCOUNT_HAS_DATA_FILTER}}
 ORDER BY
     RepositoryCode, MaterialGoodsCode,
     RefDate ASC NULLS FIRST, InRefOrder,
