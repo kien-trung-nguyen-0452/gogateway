@@ -53,6 +53,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		FromDate:                 body.FromDate,
 		ToDate:                   body.ToDate,
 		ParamCheckAll:            body.ParamCheckAll,
+		GetAccountHasData:        body.GetAccountHasData,
 	}
 
 	rows, elapsedMs, err := h.service.GetSoChiTiet(r.Context(), params)
