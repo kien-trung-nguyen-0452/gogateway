@@ -47,7 +47,7 @@ func (s *Service) GetSoChiTiet(ctx context.Context, p QueryParams) ([]Row, int64
 
 	// Build repository filter động
 	repoFilter := ""
-	if !p.ParamCheckAll && len(p.RepositoryIDs) > 0 {
+	if len(p.RepositoryIDs) > 0 {
 		repoFilter = fmt.Sprintf(
 			"AND RepositoryID IN CAST([%s] AS Array(UUID))",
 			quoteJoin(p.RepositoryIDs),
@@ -61,12 +61,18 @@ func (s *Service) GetSoChiTiet(ctx context.Context, p QueryParams) ([]Row, int64
 			"AND MaterialGoodsID IN CAST([%s] AS Array(UUID))",
 			quoteJoin(p.MaterialGoodsIDs),
 		)
+	} else if p.ParamCheckAll && len(p.MaterialGoodsIDs) > 0 {
+		materialFilter = fmt.Sprintf(
+			"AND MaterialGoodsID IN CAST([%s] AS Array(UUID))",
+			quoteJoin(p.MaterialGoodsIDs),
+		)
 	}
 
 	accountFilter := ""
-	if !p.GetAccountHasData {
+	if p.GetAccountHasData {
+
 		accountFilter = fmt.Sprint(
-			"WHERE InwardQuantity <> 0 OR InwardAmount <> 0\n   OR OutwardQuantity <> 0 OR OutwardAmount <> 0\n   Or Reason = 'Số dư đầu kỳ'",
+			"WHERE (is_detail = 1 AND (InwardQuantity <> 0 OR InwardAmount <> 0\n   OR OutwardQuantity <> 0 OR OutwardAmount <> 0))\n   OR (is_detail = 0 AND Reason = 'Số dư đầu kỳ' AND group_has_detail = 1)",
 		)
 	}
 

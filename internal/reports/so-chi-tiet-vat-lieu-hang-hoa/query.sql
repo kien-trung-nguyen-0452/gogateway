@@ -118,7 +118,12 @@ SELECT
     replaceRegexpAll(RefNo, '[^a-zA-Z0-9]', ''),
     RefNo, OrderPriority, ReferenceID, DetailID
     ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-    ) AS ClosingAmount
+    ) AS ClosingAmount,
+    max(if(is_detail = 1
+    AND (InwardQuantity <> 0 OR InwardAmount <> 0
+    OR OutwardQuantity <> 0 OR OutwardAmount <> 0), 1, 0)) OVER (
+    PARTITION BY RepositoryID, MaterialGoodsID
+    ) AS group_has_detail
 FROM combined_rows
     )
 
