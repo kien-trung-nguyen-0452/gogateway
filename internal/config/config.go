@@ -15,6 +15,7 @@ type Config struct {
 	CHPassword string
 	CHDatabase string
 	HTTPPort   string
+	GRPCPort   string
 }
 
 func Load() (Config, error) {
@@ -24,7 +25,8 @@ func Load() (Config, error) {
 		CHUser:     getEnv("CH_USER", "eb_admin"),
 		CHPassword: os.Getenv("CH_PASSWORD"),
 		CHDatabase: getEnv("CH_DATABASE", "eb"),
-		HTTPPort:   getEnv("HTTP_PORT", "8090"),
+		HTTPPort:   getEnv("HTTP_PORT", "8089"),
+		GRPCPort:   getEnv("GRPC_PORT", "9090"),
 	}
 
 	if cfg.CHPassword == "" {

@@ -125,6 +125,33 @@ SELECT
     PARTITION BY RepositoryID, MaterialGoodsID
     ) AS group_has_detail
 FROM combined_rows
+    ),
+
+    -- ---- Quy doi theo @UnitType (dung material_goods_convert_unit) --------
+    -- UnitType=0: giu nguyen (khong quy doi). UnitType<>0: tra cuu ty le quy
+    -- doi theo (MaterialGoodsID, OrderNumber=UnitType). Cong thuc chuan:
+    --   Formula='*': SL hien thi = SL chinh / ConvertRate; DonGia = DonGia chinh * ConvertRate
+    --   Formula='/': SL hien thi = SL chinh * ConvertRate; DonGia = DonGia chinh / ConvertRate
+    unit_converted AS
+    (
+SELECT
+    *,
+    multiIf(
+    {{UNIT_TYPE}} = 0, toDecimal64(1, 10),
+    dictGetOrDefault('eb.dict_material_goods_convert_unit', 'formula',
+    (MaterialGoodsID, {{UNIT_TYPE}}), '*') = '*',
+    toDecimal64(1, 10) / nullIf(ifNull(dictGetOrDefault(
+    'eb.dict_material_goods_convert_unit', 'convert_rate',
+    (MaterialGoodsID, {{UNIT_TYPE}}), toDecimal64(1, 10)), toDecimal64(1, 10)), 0),
+    ifNull(dictGetOrDefault('eb.dict_material_goods_convert_unit', 'convert_rate',
+    (MaterialGoodsID, {{UNIT_TYPE}}), toDecimal64(1, 10)), toDecimal64(1, 10))
+    ) AS quantity_factor,
+    multiIf(
+    {{UNIT_TYPE}} = 0, EffectiveUnitID,
+    dictGetOrDefault('eb.dict_material_goods_convert_unit', 'unit_id',
+    (MaterialGoodsID, {{UNIT_TYPE}}), EffectiveUnitID)
+    ) AS DisplayUnitID
+FROM running
     )
 
 SELECT
@@ -140,12 +167,14 @@ SELECT
 
     dictGetOrDefault('eb.dict_eb_organization_unit', 'currency_id', '{{PRIMARY_COMPANY_ID}}', 'VND') AS CurrencyID,
 
-    EffectiveUnitID AS UnitID,
-    dictGetOrDefault('eb.dict_unit', 'unit_name', EffectiveUnitID, '') AS UnitName,
+    DisplayUnitID AS UnitID,
+    dictGetOrDefault('eb.dict_unit', 'unit_name', DisplayUnitID, '') AS UnitName,
 
-    ConvertRate, MainQuantity, MainUnitPrice, UnitPrice,
-    InwardQuantity, InwardAmount, OutwardQuantity, OutwardAmount,
-    ClosingQuantity, ClosingAmount,
+    quantity_factor AS ConvertRate, MainQuantity, MainUnitPrice,
+    UnitPrice / nullIf(quantity_factor, 0) AS UnitPrice,
+    InwardQuantity * quantity_factor AS InwardQuantity, InwardAmount,
+    OutwardQuantity * quantity_factor AS OutwardQuantity, OutwardAmount,
+    ClosingQuantity * quantity_factor AS ClosingQuantity, ClosingAmount,
 
     AccountingObjectID,
     if(Reason = 'Số dư đầu kỳ', NULL, dictGetOrDefault('eb.dict_accounting_object', 'accounting_object_code', AccountingObjectID, '')) AS AccountingObjectCode,
@@ -176,8 +205,8 @@ SELECT
     if(Reason = 'Số dư đầu kỳ', NULL, dictGetOrDefault('eb.dict_statistics_code', 'statistics_code', StatisticsCodeID, '')) AS StatisticsCode,
     if(Reason = 'Số dư đầu kỳ', NULL, dictGetOrDefault('eb.dict_statistics_code', 'statistics_code_name', StatisticsCodeID, '')) AS StatisticsCodeName
 
-FROM running
-{{ACCOUNT_HAS_DATA_FILTER}}
+FROM unit_converted
+    {{ACCOUNT_HAS_DATA_FILTER}}
 ORDER BY
     RepositoryCode, MaterialGoodsCode,
     RefDate ASC NULLS FIRST, InRefOrder,

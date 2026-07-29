@@ -1,0 +1,103 @@
+syntax = "proto3";
+
+package sochitietvatlieu;
+
+option go_package = "softdream.vn/go-gateway/internal/so_chi_tiet_vat_lieu_hang_hoa/pb;pb";
+option java_package = "vn.softdream.reports.sochitietvatlieu";
+option java_multiple_files = true;
+option java_outer_classname = "SoChiTietVatLieuProto";
+
+// ============================================================================
+// Server Streaming RPC - Go gui TUNG DONG ngay khi doc duoc tu ClickHouse
+// (khong buffer het 500k dong vao RAM roi moi gui 1 cuc nhu HTTP/JSON truoc
+// day - day chinh la ly do gay treo voi bao cao lon).
+// ============================================================================
+service SoChiTietVatLieuService {
+  rpc GetSoChiTietVatLieu (SoChiTietVatLieuRequest) returns (stream SoChiTietVatLieuRow);
+}
+
+message SoChiTietVatLieuRequest {
+  repeated string company_ids = 1;
+  string primary_company_id = 2;
+  repeated string repository_ids = 3;
+  repeated string material_goods_ids = 4;
+  repeated string own_repository_ids = 5;
+  repeated string other_repository_ids = 6;
+  int32 is_company_business_type_gas = 7;
+  string from_date = 8;               // "2026-01-01 00:00:00"
+  string to_date = 9;
+  int32 unit_type = 10;
+  string material_goods_category_id = 11;  // "00000000-..." = khong loc
+  bool get_account_has_data = 12;
+}
+
+// Cac field so lieu (quantity/amount/price) dung STRING, KHONG dung
+// float/double - Protobuf khong co kieu Decimal native, dung float se MAT
+// DO CHINH XAC voi so tien (da rut kinh nghiem tu decimal.Decimal xuyen
+// suot du an nay). Ben nhan (Java) tu parse BigDecimal tu string.
+message SoChiTietVatLieuRow {
+  bool is_detail = 1;
+
+  string repository_id = 2;
+  string repository_code = 3;
+  string repository_name = 4;
+
+  string material_goods_id = 5;
+  string material_goods_code = 6;
+  string material_goods_name = 7;
+
+  string reference_id = 8;
+  string detail_id = 9;
+  int32 type_id = 10;
+
+  string posted_date = 11;   // ISO8601
+  string ref_date = 12;      // rong "" neu la dong opening (NULL trong CH)
+  string ref_no = 13;
+  string reason = 14;
+  string account_corresponding = 15;
+  string currency_id = 16;
+
+  string unit_id = 17;
+  string unit_name = 18;
+
+  string convert_rate = 19;
+  string main_quantity = 20;
+  string main_unit_price = 21;
+  string unit_price = 22;
+
+  string inward_quantity = 23;
+  string inward_amount = 24;
+  string outward_quantity = 25;
+  string outward_amount = 26;
+  string closing_quantity = 27;
+  string closing_amount = 28;
+
+  string accounting_object_id = 29;
+  string accounting_object_code = 30;
+  string accounting_object_name = 31;
+  string accounting_object_address = 32;
+  string tax_code = 33;
+
+  string expense_item_id = 34;
+  string expense_item_code = 35;
+  string expense_item_name = 36;
+
+  string budget_item_id = 37;
+  string budget_item_code = 38;
+  string budget_item_name = 39;
+
+  string department_id = 40;
+  string organization_unit_code = 41;
+  string organization_unit_name = 42;
+
+  string cost_set_id = 43;
+  string cost_set_code = 44;
+  string cost_set_name = 45;
+
+  string em_contract_id = 46;
+  string contract_no = 47;
+
+  string statistics_code_id = 48;
+  string statistics_code = 49;
+  string statistics_code_name = 50;
+}
