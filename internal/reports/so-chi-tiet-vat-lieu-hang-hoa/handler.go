@@ -26,6 +26,7 @@ type RequestBody struct {
 	ToDate                   string   `json:"toDate"`
 	ParamCheckAll            bool     `json:"paramCheckAll"` // true = lấy tất cả kho + hàng hóa
 	GetAccountHasData        bool     `json:"getAccountHasData"`
+	UnitType                 int      `json:"unitType"`
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -54,6 +55,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ToDate:                   body.ToDate,
 		ParamCheckAll:            body.ParamCheckAll,
 		GetAccountHasData:        body.GetAccountHasData,
+		UnitType:                 body.UnitType,
 	}
 
 	rows, elapsedMs, err := h.service.GetSoChiTiet(r.Context(), params)

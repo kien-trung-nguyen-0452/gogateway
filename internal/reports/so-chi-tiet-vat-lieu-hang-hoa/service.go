@@ -38,6 +38,7 @@ type QueryParams struct {
 	ToDate                   string
 	ParamCheckAll            bool // true = bỏ filter RepositoryID + MaterialGoodsID
 	GetAccountHasData        bool
+	UnitType                 int
 }
 
 func (s *Service) GetSoChiTiet(ctx context.Context, p QueryParams) ([]Row, int64, error) {
@@ -76,6 +77,14 @@ func (s *Service) GetSoChiTiet(ctx context.Context, p QueryParams) ([]Row, int64
 		)
 	}
 
+	/*	unitType := 0
+		if p.UnitType > 0 {
+
+			accountFilter = fmt.Sprint(
+				"UnitType =", p.UnitType,
+			)
+		}*/
+
 	sql := queryTemplate
 	sql = strings.ReplaceAll(sql, "{{TO_DATE}}", p.ToDate)
 	sql = strings.ReplaceAll(sql, "{{FROM_DATE}}", p.FromDate)
@@ -87,6 +96,7 @@ func (s *Service) GetSoChiTiet(ctx context.Context, p QueryParams) ([]Row, int64
 	sql = strings.ReplaceAll(sql, "{{OTHER_REPOSITORY_IDS}}", quoteJoin(p.OtherRepositoryIDs))
 	sql = strings.ReplaceAll(sql, "{{IS_COMPANY_BUSINESS_TYPE_GAS}}", fmt.Sprintf("%d", p.IsCompanyBusinessTypeGas))
 	sql = strings.ReplaceAll(sql, "{{ACCOUNT_HAS_DATA_FILTER}}", accountFilter)
+	sql = strings.ReplaceAll(sql, "{{UNIT_TYPE}}", fmt.Sprintf("%d", p.UnitType))
 
 	start := time.Now()
 

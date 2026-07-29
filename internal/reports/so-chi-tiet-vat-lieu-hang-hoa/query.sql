@@ -5,7 +5,8 @@ WITH
                 ID, ReferenceID, DetailID, TypeID, TypeLedger, CompanyID,
                 RepositoryID, MaterialGoodsID, UnitID, UnitPrice,
                 IWQuantity, OWQuantity, IWAmount, OWAmount,
-                MainUnitID, MainUnitPrice, MainIWQuantity, MainOWQuantity, MainConvertRate,
+                ifNull(MainUnitID, toUUID('00000000-0000-0000-0000-000000000000')) AS MainUnitID,
+                MainUnitPrice, MainIWQuantity, MainOWQuantity, MainConvertRate,
                 Reason, PostedDate, Date, NoFBook, NoMBook, AccountCorresponding,
     OrderPriority,
     BudgetItemID, CostSetID, StatisticsCodeID, ExpenseItemID,
@@ -40,7 +41,8 @@ SELECT
     sum(if(UnitID = MainUnitID, ifNull(IWQuantity, 0), ifNull(MainIWQuantity, 0))
     - if(UnitID = MainUnitID, ifNull(OWQuantity, 0), ifNull(MainOWQuantity, 0))) AS NetQuantity,
     sum(ifNull(IWAmount, 0) - ifNull(OWAmount, 0)) AS NetAmount,
-    max(Date) AS MaxPreDate
+    max(Date) AS MaxPreDate,
+    max(MainUnitPrice) AS MaxMainUnitPrice
 FROM ledger_scope
 WHERE PostedDate < toDateTime('{{FROM_DATE}}')
 GROUP BY RepositoryID, MaterialGoodsID
@@ -57,11 +59,11 @@ SELECT
     CAST(NULL AS Nullable(DateTime)) AS RefDate,
     MaxPreDate AS InRefOrder,
     '' AS RefNo, 'Số dư đầu kỳ' AS Reason, '' AS AccountCorresponding,
-    toUUID('00000000-0000-0000-0000-000000000000') AS EffectiveUnitID,
+    dictGetOrDefault('eb.dict_material_goods', 'unit_id', MaterialGoodsID, toUUID('00000000-0000-0000-0000-000000000000')) AS EffectiveUnitID,
     toDecimal64(1, 10) AS ConvertRate,
     NetQuantity AS MainQuantity,
-    toDecimal64(0, 10) AS MainUnitPrice,
-    toDecimal64(0, 10) AS UnitPrice,
+    MaxMainUnitPrice AS MainUnitPrice,
+    ifNull(NetAmount / nullIf(NetQuantity, 0), 0) AS UnitPrice,
     toDecimal64(0, 10) AS InwardQuantity, toDecimal64(0, 10) AS InwardAmount,
     toDecimal64(0, 10) AS OutwardQuantity, toDecimal64(0, 10) AS OutwardAmount,
     0 AS OrderPriority,
@@ -83,7 +85,7 @@ SELECT
     CAST(Date AS Nullable(DateTime)) AS RefDate,
     Date AS InRefOrder,
     NoFBook AS RefNo, Reason, AccountCorresponding,
-    MainUnitID AS EffectiveUnitID, MainConvertRate AS ConvertRate,
+    ifNull(MainUnitID, toUUID('00000000-0000-0000-0000-000000000000')) AS EffectiveUnitID, MainConvertRate AS ConvertRate,
     multiIf(MainIWQuantity IS NOT NULL, MainIWQuantity, MainOWQuantity) AS MainQuantity,
     MainUnitPrice,
     multiIf(UnitID = MainUnitID, UnitPrice, MainUnitPrice) AS UnitPrice,
@@ -125,6 +127,33 @@ SELECT
     PARTITION BY RepositoryID, MaterialGoodsID
     ) AS group_has_detail
 FROM combined_rows
+    ),
+
+    -- ---- Quy doi theo @UnitType (dung material_goods_convert_unit) --------
+    -- UnitType=0: giu nguyen (khong quy doi). UnitType<>0: tra cuu ty le quy
+    -- doi theo (MaterialGoodsID, OrderNumber=UnitType). Cong thuc chuan:
+    --   Formula='*': SL hien thi = SL chinh / ConvertRate; DonGia = DonGia chinh * ConvertRate
+    --   Formula='/': SL hien thi = SL chinh * ConvertRate; DonGia = DonGia chinh / ConvertRate
+    unit_converted AS
+    (
+SELECT
+    *,
+    multiIf(
+    {{UNIT_TYPE}} = 0, toDecimal64(1, 10),
+    dictGetOrDefault('eb.dict_material_goods_convert_unit', 'formula',
+    (MaterialGoodsID, {{UNIT_TYPE}}), '*') = '*',
+    toDecimal64(1, 10) / nullIf(ifNull(dictGetOrDefault(
+    'eb.dict_material_goods_convert_unit', 'convert_rate',
+    (MaterialGoodsID, {{UNIT_TYPE}}), toDecimal64(1, 10)), toDecimal64(1, 10)), 0),
+    ifNull(dictGetOrDefault('eb.dict_material_goods_convert_unit', 'convert_rate',
+    (MaterialGoodsID, {{UNIT_TYPE}}), toDecimal64(1, 10)), toDecimal64(1, 10))
+    ) AS quantity_factor,
+    multiIf(
+    {{UNIT_TYPE}} = 0, EffectiveUnitID,
+    dictGetOrDefault('eb.dict_material_goods_convert_unit', 'unit_id',
+    (MaterialGoodsID, {{UNIT_TYPE}}), EffectiveUnitID)
+    ) AS DisplayUnitID
+FROM running
     )
 
 SELECT
@@ -140,12 +169,14 @@ SELECT
 
     dictGetOrDefault('eb.dict_eb_organization_unit', 'currency_id', '{{PRIMARY_COMPANY_ID}}', 'VND') AS CurrencyID,
 
-    EffectiveUnitID AS UnitID,
-    dictGetOrDefault('eb.dict_unit', 'unit_name', EffectiveUnitID, '') AS UnitName,
+    DisplayUnitID AS UnitID,
+    dictGetOrDefault('eb.dict_unit', 'unit_name', DisplayUnitID, '') AS UnitName,
 
-    ConvertRate, MainQuantity, MainUnitPrice, UnitPrice,
-    InwardQuantity, InwardAmount, OutwardQuantity, OutwardAmount,
-    ClosingQuantity, ClosingAmount,
+    quantity_factor AS ConvertRate, MainQuantity, MainUnitPrice,
+    UnitPrice / nullIf(quantity_factor, 0) AS UnitPrice,
+    InwardQuantity * quantity_factor AS InwardQuantity, InwardAmount,
+    OutwardQuantity * quantity_factor AS OutwardQuantity, OutwardAmount,
+    ClosingQuantity * quantity_factor AS ClosingQuantity, ClosingAmount,
 
     AccountingObjectID,
     if(Reason = 'Số dư đầu kỳ', NULL, dictGetOrDefault('eb.dict_accounting_object', 'accounting_object_code', AccountingObjectID, '')) AS AccountingObjectCode,
@@ -176,8 +207,8 @@ SELECT
     if(Reason = 'Số dư đầu kỳ', NULL, dictGetOrDefault('eb.dict_statistics_code', 'statistics_code', StatisticsCodeID, '')) AS StatisticsCode,
     if(Reason = 'Số dư đầu kỳ', NULL, dictGetOrDefault('eb.dict_statistics_code', 'statistics_code_name', StatisticsCodeID, '')) AS StatisticsCodeName
 
-FROM running
-{{ACCOUNT_HAS_DATA_FILTER}}
+FROM unit_converted
+    {{ACCOUNT_HAS_DATA_FILTER}}
 ORDER BY
     RepositoryCode, MaterialGoodsCode,
     RefDate ASC NULLS FIRST, InRefOrder,
