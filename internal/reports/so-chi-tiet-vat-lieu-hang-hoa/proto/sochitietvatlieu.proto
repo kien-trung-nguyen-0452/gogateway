@@ -29,6 +29,7 @@ message SoChiTietVatLieuRequest {
   int32 unit_type = 10;
   string material_goods_category_id = 11;  // "00000000-..." = khong loc
   bool get_account_has_data = 12;
+  bool param_check_all = 13;
 }
 
 // Cac field so lieu (quantity/amount/price) dung STRING, KHONG dung

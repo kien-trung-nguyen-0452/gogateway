@@ -34,6 +34,8 @@ func (g *GRPCServer) GetSoChiTietVatLieu(req *pb.SoChiTietVatLieuRequest, stream
 		FromDate:                 req.GetFromDate(),
 		ToDate:                   req.GetToDate(),
 		GetAccountHasData:        req.GetGetAccountHasData(),
+		ParamCheckAll:            req.GetParamCheckAll(),
+
 		// LUU Y: proto hien chua co field ParamCheckAll - QueryParams that
 		// cua ban co field nay nhung khong con dung trong buildQuery (da
 		// gop logic o buoc sua service.go). Neu ParamCheckAll con y nghia

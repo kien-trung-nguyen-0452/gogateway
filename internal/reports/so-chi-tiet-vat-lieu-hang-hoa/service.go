@@ -44,6 +44,7 @@ type QueryParams struct {
 	ToDate                   string
 	ParamCheckAll            bool // true = bỏ filter RepositoryID + MaterialGoodsID
 	GetAccountHasData        bool
+	UnitType                 int
 }
 
 func (s *Service) GetSoChiTiet(ctx context.Context, p QueryParams) ([]Row, int64, error) {
@@ -113,6 +114,11 @@ func buildQuery(p QueryParams) string {
 			"AND MaterialGoodsID IN CAST([%s] AS Array(UUID))",
 			quoteJoin(p.MaterialGoodsIDs),
 		)
+	} else if p.ParamCheckAll && len(p.MaterialGoodsIDs) > 0 {
+		materialFilter = fmt.Sprintf(
+			"AND MaterialGoodsID IN CAST([%s] AS Array(UUID))",
+			quoteJoin(p.MaterialGoodsIDs),
+		)
 	}
 
 	accountFilter := ""
@@ -133,6 +139,7 @@ func buildQuery(p QueryParams) string {
 	sql = strings.ReplaceAll(sql, "{{OTHER_REPOSITORY_IDS}}", quoteJoin(p.OtherRepositoryIDs))
 	sql = strings.ReplaceAll(sql, "{{IS_COMPANY_BUSINESS_TYPE_GAS}}", fmt.Sprintf("%d", p.IsCompanyBusinessTypeGas))
 	sql = strings.ReplaceAll(sql, "{{ACCOUNT_HAS_DATA_FILTER}}", accountFilter)
+	sql = strings.ReplaceAll(sql, "{{UNIT_TYPE}}", fmt.Sprintf("%d", p.UnitType))
 	return sql
 }
 
