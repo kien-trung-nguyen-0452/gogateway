@@ -5,7 +5,8 @@ WITH
                 ID, ReferenceID, DetailID, TypeID, TypeLedger, CompanyID,
                 RepositoryID, MaterialGoodsID, UnitID, UnitPrice,
                 IWQuantity, OWQuantity, IWAmount, OWAmount,
-                MainUnitID, MainUnitPrice, MainIWQuantity, MainOWQuantity, MainConvertRate,
+                ifNull(MainUnitID, toUUID('00000000-0000-0000-0000-000000000000')) AS MainUnitID,
+                MainUnitPrice, MainIWQuantity, MainOWQuantity, MainConvertRate,
                 Reason, PostedDate, Date, NoFBook, NoMBook, AccountCorresponding,
     OrderPriority,
     BudgetItemID, CostSetID, StatisticsCodeID, ExpenseItemID,
@@ -40,7 +41,8 @@ SELECT
     sum(if(UnitID = MainUnitID, ifNull(IWQuantity, 0), ifNull(MainIWQuantity, 0))
     - if(UnitID = MainUnitID, ifNull(OWQuantity, 0), ifNull(MainOWQuantity, 0))) AS NetQuantity,
     sum(ifNull(IWAmount, 0) - ifNull(OWAmount, 0)) AS NetAmount,
-    max(Date) AS MaxPreDate
+    max(Date) AS MaxPreDate,
+    max(MainUnitPrice) AS MaxMainUnitPrice
 FROM ledger_scope
 WHERE PostedDate < toDateTime('{{FROM_DATE}}')
 GROUP BY RepositoryID, MaterialGoodsID
@@ -57,11 +59,11 @@ SELECT
     CAST(NULL AS Nullable(DateTime)) AS RefDate,
     MaxPreDate AS InRefOrder,
     '' AS RefNo, 'Số dư đầu kỳ' AS Reason, '' AS AccountCorresponding,
-    toUUID('00000000-0000-0000-0000-000000000000') AS EffectiveUnitID,
+    dictGetOrDefault('eb.dict_material_goods', 'unit_id', MaterialGoodsID, toUUID('00000000-0000-0000-0000-000000000000')) AS EffectiveUnitID,
     toDecimal64(1, 10) AS ConvertRate,
     NetQuantity AS MainQuantity,
-    toDecimal64(0, 10) AS MainUnitPrice,
-    toDecimal64(0, 10) AS UnitPrice,
+    MaxMainUnitPrice AS MainUnitPrice,
+    ifNull(NetAmount / nullIf(NetQuantity, 0), 0) AS UnitPrice,
     toDecimal64(0, 10) AS InwardQuantity, toDecimal64(0, 10) AS InwardAmount,
     toDecimal64(0, 10) AS OutwardQuantity, toDecimal64(0, 10) AS OutwardAmount,
     0 AS OrderPriority,
@@ -83,7 +85,7 @@ SELECT
     CAST(Date AS Nullable(DateTime)) AS RefDate,
     Date AS InRefOrder,
     NoFBook AS RefNo, Reason, AccountCorresponding,
-    MainUnitID AS EffectiveUnitID, MainConvertRate AS ConvertRate,
+    ifNull(MainUnitID, toUUID('00000000-0000-0000-0000-000000000000')) AS EffectiveUnitID, MainConvertRate AS ConvertRate,
     multiIf(MainIWQuantity IS NOT NULL, MainIWQuantity, MainOWQuantity) AS MainQuantity,
     MainUnitPrice,
     multiIf(UnitID = MainUnitID, UnitPrice, MainUnitPrice) AS UnitPrice,
