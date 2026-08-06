@@ -152,7 +152,22 @@ SELECT
     {{UNIT_TYPE}} = 0, EffectiveUnitID,
     dictGetOrDefault('eb.dict_material_goods_convert_unit', 'unit_id',
     (MaterialGoodsID, {{UNIT_TYPE}}), EffectiveUnitID)
-    ) AS DisplayUnitID
+    ) AS DisplayUnitID,
+
+    -- Ty le quy doi de HIEN THI (cot "Ty le chuyen doi" tren bao cao).
+    --
+    -- KHONG dung quantity_factor cho cot nay: quantity_factor la he so NHAN noi bo,
+    -- voi formula='*' no bang 1/ty-le (vd 0.1) - dung de tinh so luong/don gia thi
+    -- chuan, nhung xuat ra bao cao thi nguoi dung phai thay con so nghiep vu (10),
+    -- dung nhu ban SQL Server.
+    --
+    -- Khi khong quy doi (UNIT_TYPE = 0) thi giu nguyen ConvertRate san co tu
+    -- combined_rows - la MainConvertRate cua chinh chung tu.
+    multiIf(
+    {{UNIT_TYPE}} = 0, ConvertRate,
+    ifNull(dictGetOrDefault('eb.dict_material_goods_convert_unit', 'convert_rate',
+    (MaterialGoodsID, {{UNIT_TYPE}}), toDecimal64(1, 10)), toDecimal64(1, 10))
+    ) AS DisplayConvertRate
 FROM running
     )
 
@@ -172,7 +187,7 @@ SELECT
     DisplayUnitID AS UnitID,
     dictGetOrDefault('eb.dict_unit', 'unit_name', DisplayUnitID, '') AS UnitName,
 
-    quantity_factor AS ConvertRate, MainQuantity, MainUnitPrice,
+    DisplayConvertRate AS ConvertRate, MainQuantity, MainUnitPrice,
     UnitPrice / nullIf(quantity_factor, 0) AS UnitPrice,
     InwardQuantity * quantity_factor AS InwardQuantity, InwardAmount,
     OutwardQuantity * quantity_factor AS OutwardQuantity, OutwardAmount,
@@ -205,7 +220,16 @@ SELECT
 
     StatisticsCodeID,
     if(Reason = 'Số dư đầu kỳ', NULL, dictGetOrDefault('eb.dict_statistics_code', 'statistics_code', StatisticsCodeID, '')) AS StatisticsCode,
-    if(Reason = 'Số dư đầu kỳ', NULL, dictGetOrDefault('eb.dict_statistics_code', 'statistics_code_name', StatisticsCodeID, '')) AS StatisticsCodeName
+    if(Reason = 'Số dư đầu kỳ', NULL, dictGetOrDefault('eb.dict_statistics_code', 'statistics_code_name', StatisticsCodeID, '')) AS StatisticsCodeName,
+
+    -- DVT chinh (cot 'unit' tren bao cao) - don vi GOC cua hang hoa, khong doi khi quy doi.
+    -- Phan biet voi UnitName la don vi DANG hien thi (DisplayUnitID, da quy doi theo UNIT_TYPE).
+    -- EffectiveUnitID chinh la MainUnitID voi dong chi tiet, va la unit_id trong danh muc
+    -- voi dong "So du dau ky" - xem CTE combined_rows.
+    --
+    -- DE O CUOI danh sach co chu dich: scanRow() ben Go doc cot theo dung thu tu, chen vao
+    -- giua se lam lech toan bo cac cot phia sau.
+    dictGetOrDefault('eb.dict_unit', 'unit_name', EffectiveUnitID, '') AS MainUnitName
 
 FROM unit_converted
     {{ACCOUNT_HAS_DATA_FILTER}}

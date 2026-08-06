@@ -101,4 +101,8 @@ message SoChiTietVatLieuRow {
   string statistics_code_id = 48;
   string statistics_code = 49;
   string statistics_code_name = 50;
+
+  // DVT chinh - don vi goc cua hang hoa, khong doi khi nguoi dung chon quy doi don vi.
+  // Phan biet voi unit_name (18) la don vi DANG hien thi (da quy doi).
+  string main_unit_name = 51;
 }

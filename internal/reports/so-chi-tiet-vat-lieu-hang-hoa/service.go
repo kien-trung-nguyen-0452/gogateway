@@ -248,6 +248,8 @@ func scanRow(rows driverRows) (Row, error) {
 		statisticsCode *string
 		// col[49] Nullable(String)
 		statisticsCodeName *string
+		// col[50] Nullable(String) - DVT chinh, luon nam CUOI danh sach cot (xem query.sql)
+		mainUnitName *string
 	)
 
 	if err := rows.Scan(
@@ -269,6 +271,7 @@ func scanRow(rows driverRows) (Row, error) {
 		&costSetID, &costSetCode, &costSetName,
 		&emContractID, &contractNo,
 		&statisticsCodeID, &statisticsCode, &statisticsCodeName,
+		&mainUnitName,
 	); err != nil {
 		return Row{}, fmt.Errorf("scan error: %w", err)
 	}
@@ -297,6 +300,7 @@ func scanRow(rows driverRows) (Row, error) {
 		CurrencyID:           currencyID,
 		UnitID:               uuidOrEmpty(unitID),
 		UnitName:             strOrEmpty(unitName),
+		MainUnitName:         strOrEmpty(mainUnitName),
 		ConvertRate:          decimalOrZero(convertRate),
 		MainQuantity:         decimalOrZero(mainQuantity),
 		MainUnitPrice:        decimalOrZero(mainUnitPrice),
