@@ -36,10 +36,12 @@ func (g *GRPCServer) GetSoChiTietVatLieu(req *pb.SoChiTietVatLieuRequest, stream
 		GetAccountHasData:        req.GetGetAccountHasData(),
 		ParamCheckAll:            req.GetParamCheckAll(),
 
-		// LUU Y: proto hien chua co field ParamCheckAll - QueryParams that
-		// cua ban co field nay nhung khong con dung trong buildQuery (da
-		// gop logic o buoc sua service.go). Neu ParamCheckAll con y nghia
-		// khac can giu, them field vao .proto va map lai o day.
+		// UnitType = so thu tu don vi tinh chuyen doi (0 = khong quy doi).
+		// TUYET DOI khong duoc bo sot: thieu dong nay thi UnitType nhan gia tri mac dinh
+		// 0 cua Go, buildQuery thay {{UNIT_TYPE}} = 0, va query luon chay nhanh
+		// "khong quy doi" du nguoi dung da chon don vi chuyen doi. Trieu chung rat kho
+		// lan ra: cot DVT hien don vi goc, khong he co loi nao duoc bao.
+		UnitType: int(req.GetUnitType()),
 	}
 
 	_, err := g.service.StreamSoChiTiet(stream.Context(), params, func(row Row) error {
@@ -73,16 +75,19 @@ func rowToProto(row Row) *pb.SoChiTietVatLieuRow {
 		CurrencyId:           row.CurrencyID,
 		UnitId:               row.UnitID,
 		UnitName:             row.UnitName,
-		ConvertRate:          row.ConvertRate.String(),
-		MainQuantity:         row.MainQuantity.String(),
-		MainUnitPrice:        row.MainUnitPrice.String(),
-		UnitPrice:            row.UnitPrice.String(),
-		InwardQuantity:       row.InwardQuantity.String(),
-		InwardAmount:         row.InwardAmount.String(),
-		OutwardQuantity:      row.OutwardQuantity.String(),
-		OutwardAmount:        row.OutwardAmount.String(),
-		ClosingQuantity:      row.ClosingQuantity.String(),
-		ClosingAmount:        row.ClosingAmount.String(),
+		// Thieu dong nay thi Java nhan mainUnitName = "" du ClickHouse da tra ve du lieu:
+		// query -> scanRow -> Row.MainUnitName deu co, nhung khong duoc dat vao proto message.
+		MainUnitName:    row.MainUnitName,
+		ConvertRate:     row.ConvertRate.String(),
+		MainQuantity:    row.MainQuantity.String(),
+		MainUnitPrice:   row.MainUnitPrice.String(),
+		UnitPrice:       row.UnitPrice.String(),
+		InwardQuantity:  row.InwardQuantity.String(),
+		InwardAmount:    row.InwardAmount.String(),
+		OutwardQuantity: row.OutwardQuantity.String(),
+		OutwardAmount:   row.OutwardAmount.String(),
+		ClosingQuantity: row.ClosingQuantity.String(),
+		ClosingAmount:   row.ClosingAmount.String(),
 
 		AccountingObjectId:      row.AccountingObjectID,
 		AccountingObjectCode:    row.AccountingObjectCode,
