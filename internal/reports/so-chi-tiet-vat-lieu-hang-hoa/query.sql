@@ -152,22 +152,7 @@ SELECT
     {{UNIT_TYPE}} = 0, EffectiveUnitID,
     dictGetOrDefault('eb.dict_material_goods_convert_unit', 'unit_id',
     (MaterialGoodsID, {{UNIT_TYPE}}), EffectiveUnitID)
-    ) AS DisplayUnitID,
-
-    -- Ty le quy doi de HIEN THI (cot "Ty le chuyen doi" tren bao cao).
-    --
-    -- KHONG dung quantity_factor cho cot nay: quantity_factor la he so NHAN noi bo,
-    -- voi formula='*' no bang 1/ty-le (vd 0.1) - dung de tinh so luong/don gia thi
-    -- chuan, nhung xuat ra bao cao thi nguoi dung phai thay con so nghiep vu (10),
-    -- dung nhu ban SQL Server.
-    --
-    -- Khi khong quy doi (UNIT_TYPE = 0) thi giu nguyen ConvertRate san co tu
-    -- combined_rows - la MainConvertRate cua chinh chung tu.
-    multiIf(
-    {{UNIT_TYPE}} = 0, ConvertRate,
-    ifNull(dictGetOrDefault('eb.dict_material_goods_convert_unit', 'convert_rate',
-    (MaterialGoodsID, {{UNIT_TYPE}}), toDecimal64(1, 10)), toDecimal64(1, 10))
-    ) AS DisplayConvertRate
+    ) AS DisplayUnitID
 FROM running
     )
 
@@ -187,7 +172,7 @@ SELECT
     DisplayUnitID AS UnitID,
     dictGetOrDefault('eb.dict_unit', 'unit_name', DisplayUnitID, '') AS UnitName,
 
-    DisplayConvertRate AS ConvertRate, MainQuantity, MainUnitPrice,
+    ConvertRate, MainQuantity, MainUnitPrice,
     UnitPrice / nullIf(quantity_factor, 0) AS UnitPrice,
     InwardQuantity * quantity_factor AS InwardQuantity, InwardAmount,
     OutwardQuantity * quantity_factor AS OutwardQuantity, OutwardAmount,
