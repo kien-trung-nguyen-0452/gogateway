@@ -72,6 +72,7 @@ type Row struct {
 	StatisticsCodeID   string `json:"statisticsCodeId"`
 	StatisticsCode     string `json:"statisticsCode"`
 	StatisticsCodeName string `json:"statisticsCodeName"`
+	MainUnitName       string `json:"mainUnitName"`
 }
 
 type Response struct {
