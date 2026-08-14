@@ -28,6 +28,10 @@ FROM eb_dwh.fact_gl_entry_line AS f FINAL
 WHERE f.company_id IN CAST([{{COMPANY_IDS}}] AS Array(UUID))
   AND f.posted_date >= toDate('{{FROM_DATE}}')
   AND f.posted_date <= toDate('{{TO_DATE}}')
+  AND (coalesce(f.debit_amount, 0) != 0
+   OR coalesce(f.credit_amount, 0) != 0
+   OR coalesce(f.credit_amount_original, 0) !=0
+   OR coalesce(f.debit_amount_original, 0) != 0 )
 -- type_ledger = 2 là bút toán dùng chung cho cả sổ tài chính lẫn quản trị,
 -- nên luôn lấy kèm bất kể đang xem sổ nào.
   AND (f.type_ledger = {{TYPE_LEDGER}} OR f.type_ledger = 2)
@@ -40,10 +44,7 @@ WHERE f.company_id IN CAST([{{COMPANY_IDS}}] AS Array(UUID))
     {{CLUSTER_FILTER}}
     {{GROUP_BY_CLAUSE}}
     {{HAVING_CLAUSE}}
-  AND (coalesce(f.debit_amount, 0) != 0
-  OR coalesce(f.credit_amount, 0) != 0
-  OR coalesce(f.credit_amount_original, 0) !=0
-  OR coalesce(f.debit_amount_original, 0) != 0 )
+
 
 ORDER BY
     indexOf([{{ACCOUNT_ORDER}}], account_number),
