@@ -4,7 +4,7 @@ SELECT
     sum(coalesce(f.credit_amount, 0))             AS credit_sum,
     sum(coalesce(f.debit_amount_original, 0))     AS debit_orig_sum,
     sum(coalesce(f.credit_amount_original, 0))    AS credit_orig_sum
-FROM eb_dwh.fact_gl_entry_line AS f
+FROM eb_dwh.fact_gl_entry_line Final AS f
 WHERE f.company_id IN CAST([{{COMPANY_IDS}}] AS Array(UUID))
   AND f.posted_date < toDate('{{FROM_DATE}}')
   AND (f.type_ledger = {{TYPE_LEDGER}} OR f.type_ledger = 2)
