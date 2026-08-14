@@ -40,6 +40,11 @@ WHERE f.company_id IN CAST([{{COMPANY_IDS}}] AS Array(UUID))
     {{CLUSTER_FILTER}}
     {{GROUP_BY_CLAUSE}}
     {{HAVING_CLAUSE}}
+  AND (coalesce(debit_amount, 0) != 0
+  OR coalesce(credit_amount, 0) != 0
+  OR coalesce(credit_amount_original, 0) !=0
+  OR coalesce(debit_amount_original, 0) != 0 )
+
 ORDER BY
     indexOf([{{ACCOUNT_ORDER}}], account_number),
     account_number,
