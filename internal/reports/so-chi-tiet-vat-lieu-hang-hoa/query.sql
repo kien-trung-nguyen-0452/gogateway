@@ -221,6 +221,6 @@ FROM unit_converted
 ORDER BY
     RepositoryCode, MaterialGoodsCode,
     RefDate ASC NULLS FIRST, InRefOrder,
-    replaceRegexpAll(RefNo, '[^a-zA-Z0-9]', ''),
+    /*replaceRegexpAll(RefNo, '[^a-zA-Z0-9]', ''),*/
     RefNo, OrderPriority, ReferenceID, DetailID
     SETTINGS enable_optimize_predicate_expression = 0;
