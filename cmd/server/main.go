@@ -10,6 +10,7 @@ import (
 	"softdream.vn/go-gateway/internal/api"
 	"softdream.vn/go-gateway/internal/chclient"
 	"softdream.vn/go-gateway/internal/config"
+	"softdream.vn/go-gateway/internal/datasets/tinh-gia-xuat-kho"
 	"softdream.vn/go-gateway/internal/reports/so-chi-tiet-vat-lieu-hang-hoa"
 	"softdream.vn/go-gateway/internal/reports/tichluy"
 	"softdream.vn/go-gateway/internal/so_chi_tiet_vat_lieu_hang_hoa/pb" // MOI THEM - package sinh tu proto
@@ -35,7 +36,11 @@ func main() {
 	soChiTietService := so_chi_tiet_vat_lieu_hang_hoa.NewService(conn)
 	soChiTietHandler := so_chi_tiet_vat_lieu_hang_hoa.NewHandler(soChiTietService)
 
-	mux := api.NewRouter(tichLuyHandler, soChiTietHandler)
+	// Du lieu tho phuc vu Tinh Gia Xuat Kho
+	tinhGiaService := tinh_gia_xuat_kho.NewService(conn)
+	tinhGiaHandler := tinh_gia_xuat_kho.NewHandler(tinhGiaService)
+
+	mux := api.NewRouter(tichLuyHandler, soChiTietHandler, tinhGiaHandler)
 
 	// ---- HTTP server - CHAY TRONG GOROUTINE, khong bloc luong chinh -------
 	// (truoc day goi truc tiep ListenAndServe() o day se CHAN LUON, khien
