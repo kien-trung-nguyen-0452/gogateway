@@ -14,12 +14,13 @@ import (
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
-
 	"softdream.vn/go-gateway/internal/api"
 	"softdream.vn/go-gateway/internal/chclient"
 	"softdream.vn/go-gateway/internal/config"
 	"softdream.vn/go-gateway/internal/reports/so-chi-tiet-vat-lieu-hang-hoa"
+	quy "softdream.vn/go-gateway/internal/reports/so-ke-toan-chi-tiet-quy-tien-mat"
 	"softdream.vn/go-gateway/internal/reports/tichluy"
+	quypb "softdream.vn/go-gateway/internal/so_ke_toan_chi_tiet_quy_tien_mat/pb"
 
 	// Hai package sinh tu proto DEU co ten "pb" nen phai dat alias, neu khong
 	// trinh bien dich bao trung ten.
@@ -56,6 +57,10 @@ func main() {
 	taiKhoanHandler := tk.NewHandler(taiKhoanService)
 
 	mux := api.NewRouter(tichLuyHandler, soChiTietHandler)
+
+	//cashLedger
+	quyService := quy.NewService(conn)
+	mux.Handle("/api/so-ke-toan-chi-tiet-quy-tien-mat", quy.NewHandler(quyService))
 
 	// api.NewRouter chua nhan handler moi. Dang ky truc tiep o day de khong
 	// phai sua chu ky ham dung chung; khi nao on dinh thi don vao NewRouter.
@@ -97,6 +102,9 @@ func main() {
 	// MOI THEM - thieu dong nay se bao:
 	//   UNIMPLEMENTED: unknown service sochitiettaikhoan.SoChiTietTaiKhoanService
 	tkpb.RegisterSoChiTietTaiKhoanServiceServer(grpcServer, tk.NewGRPCServer(taiKhoanService))
+
+	//CashLedger
+	quypb.RegisterSoKeToanChiTietQuyTienMatServiceServer(grpcServer, quy.NewGRPCServer(quyService))
 
 	// ---- Health check -----------------------------------------------------
 	// Cho phep client va script deploy biet service san sang chua, thay vi
