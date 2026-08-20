@@ -198,8 +198,21 @@ type walker struct {
 
 	current string
 	opening balance
-	tc      balance
-	hasTC   bool
+
+	// running là số dư luỹ kế TÍNH ĐẾN VÀ BAO GỒM dòng chi tiết hiện tại —
+	// khởi tạo bằng opening khi mở tài khoản, cộng dồn sau mỗi dòng. Khớp
+	// hành vi bản Java cũ (biến closeAmountOC/closeAmount trong vòng lặp):
+	// dòng chi tiết đầu tiên = opening + (credit-debit) của chính nó, dòng
+	// sau = running của dòng trước + (credit-debit) của nó.
+	//
+	// TRƯỚC ĐÂY bản Go dùng thẳng `opening` (không đổi) cho applyKindClosing
+	// của MỌI dòng chi tiết trong tài khoản → mọi dòng hiện cùng một số dư,
+	// sai với báo cáo gốc (mỗi dòng phải hiện số dư SAU khi phát sinh dòng
+	// đó).
+	running balance
+
+	tc    balance
+	hasTC bool
 
 	// ── Tích luỹ cho dòng Tổng cộng ─────────────────────────────────────────
 	grandTC balance
@@ -233,7 +246,16 @@ func (w *walker) push(d Row) error {
 	d.OrderNumber = OrderTypeDetail
 	d.AccountCategoryKind = kind
 	d.AccountNameWithAccountNumber = w.name(w.current)
-	applyKindClosing(&d, w.opening.net(), w.opening.netOrig(), kind)
+
+	// Cộng dòng hiện tại vào số dư luỹ kế TRƯỚC khi tính Closing cho chính
+	// dòng này — running phải phản ánh số dư SAU dòng này.
+	w.running.add(balance{
+		Debit:      d.DebitAmount.Decimal,
+		Credit:     d.CreditAmount.Decimal,
+		DebitOrig:  d.DebitAmountOriginal.Decimal,
+		CreditOrig: d.CreditAmountOriginal.Decimal,
+	})
+	applyKindClosing(&d, w.running.net(), w.running.netOrig(), kind)
 	if err := w.onRow(d); err != nil {
 		return err
 	}
@@ -254,6 +276,7 @@ func (w *walker) openAccount(acc string) error {
 	w.tc = balance{}
 	w.hasTC = false
 	w.opening = w.sddkMap[acc] // zero value nếu không có
+	w.running = w.opening      // luỹ kế bắt đầu từ số dư đầu kỳ
 
 	// Dòng SDDK chỉ phát khi khác 0 — giữ đúng hành vi bản Java.
 	if w.opening.net().IsZero() && w.opening.netOrig().IsZero() {
@@ -545,7 +568,13 @@ func buildDetailQuery(
 
 		// ORDER BY dùng ALIAS, không phải f.* — sau GROUP BY thì cột gốc không
 		// tham chiếu trực tiếp được.
-		sql = strings.ReplaceAll(sql, "{{ORDER_TAIL}}", "key_id")
+		//
+		// Thu tu yeu cau: AccountNumber, OrderType, PostedDate, Date, OrderNumber, No.
+		// OrderType/OrderNumber/Date la field walker tu sinh (khong co that
+		// trong fact table) nen khong the ORDER BY o day; account_number va
+		// posted_date da nam trong ORDER BY ngoai (buildDetailQuery), tail chi
+		// con "no" la cot that con lai trong chuoi yeu cau.
+		sql = strings.ReplaceAll(sql, "{{ORDER_TAIL}}", "no")
 
 	} else {
 		// ── CHẾ ĐỘ CHI TIẾT ─────────────────────────────────────────────────
@@ -590,7 +619,8 @@ func buildDetailQuery(
 		sql = strings.ReplaceAll(sql, "{{HAVING_CLAUSE}}", "")
 
 		sql = strings.ReplaceAll(sql, "{{GROUP_BY_CLAUSE}}", "")
-		sql = strings.ReplaceAll(sql, "{{ORDER_TAIL}}", "order_priority, key_id")
+		// Xem ghi chu o nhanh GroupSameItem==1 ben tren ve thu tu yeu cau.
+		sql = strings.ReplaceAll(sql, "{{ORDER_TAIL}}", "no")
 	}
 
 	return applyCommonPlaceholders(sql, companyIDs, accounts, p, typeLedger)
