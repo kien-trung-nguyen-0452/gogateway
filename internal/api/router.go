@@ -17,7 +17,7 @@ func NewRouter(
 
 	mux.Handle("/internal/v1/reports/tich-luy", tichLuyHandler)
 	mux.Handle("/internal/v1/reports/so-chi-tiet-vat-lieu-hang-hoa", soChiTietHandler)
-	mux.Handle("/internal/v1/datasets/tinh-gia-xuat-kho", tinhGiaHandler)
+	mux.Handle("/internal/v1/datasets/repository-ledger", tinhGiaHandler)
 
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
