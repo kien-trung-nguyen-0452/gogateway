@@ -1,12 +1,12 @@
--- 19/08/2026: truongtd: Query lấy dữ liệu thô để Tính giá xuất kho - Bình quân cuối kỳ
--- Tham số thay vào:
---   {{COMPANY_ID}}             lọc cột CompanyID
---   {{TYPE_LEDGER}}            lọc cột TypeLedger, sổ đang làm việc
---   {{FROM_DATE}}              mốc chia tồn đầu kỳ và phát sinh, so với PostedDate
---   {{TO_DATE}}                giới hạn cuối kỳ, so với PostedDate
---   {{REPOSITORY_FILTER}}      lọc cột RepositoryID, rỗng nghĩa là lấy tất cả
---   {{MATERIAL_GOODS_FILTER}}  lọc cột MaterialGoodsID, rỗng nghĩa là lấy tất cả
-
+/*
+19/08/2026: truongtd: Query lấy dữ liệu thô để Tính giá xuất kho - Bình quân cuối kỳ
+- COMPANY_ID             Lọc cột CompanyID
+- TYPE_LEDGER            Lọc cột TypeLedger, sổ đang làm việc
+- FROM_DATE              Mốc chia tồn đầu kỳ và phát sinh, so với PostedDate
+- TO_DATE                Giới hạn cuối kỳ, so với PostedDate
+- REPOSITORY_FILTER      Lọc cột RepositoryID, rỗng nghĩa là lấy tất cả
+- MATERIAL_GOODS_FILTER  Lọc cột MaterialGoodsID, rỗng nghĩa là lấy tất cả
+*/
 WITH ledger_scope AS
 (
     SELECT
@@ -33,9 +33,9 @@ WITH ledger_scope AS
 SELECT *
 FROM
 (
-    -- row_kind = 0: Tồn đầu kỳ, lấy hết dữ liệu trước FROM_DATE
+    -- RowKind = 0: Tồn đầu kỳ, lấy hết dữ liệu trước FROM_DATE
     SELECT
-        toUInt8(0)                                              AS row_kind,
+        toUInt8(0)                                              AS RowKind,
         MaterialGoodsID                                         AS MaterialGoodsID,
         RepositoryID                                            AS RepositoryID,
         toUUID('00000000-0000-0000-0000-000000000000')          AS DetailID,
@@ -54,9 +54,9 @@ FROM
 
     UNION ALL
 
-    -- row_kind = 1: Phát sinh trong kỳ, lấy hết dữ liệu sau FROM_DATE
+    -- RowKind = 1: Phát sinh trong kỳ, lấy hết dữ liệu sau FROM_DATE
     SELECT
-        toUInt8(1)                                            AS row_kind,
+        toUInt8(1)                                            AS RowKind,
         MaterialGoodsID                                       AS MaterialGoodsID,
         RepositoryID                                          AS RepositoryID,
         DetailID                                              AS DetailID,
@@ -71,4 +71,4 @@ FROM
     WHERE PostedDate >= toDateTime('{{FROM_DATE}}')
 )
 -- Gom theo (MaterialGoodsID, RepositoryID) để xử lý từng nhóm
-ORDER BY MaterialGoodsID, RepositoryID, row_kind, PostedDate
+ORDER BY MaterialGoodsID, RepositoryID, RowKind, PostedDate

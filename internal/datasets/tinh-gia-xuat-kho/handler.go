@@ -11,52 +11,31 @@ func NewHandler(service *Service) *Handler {
 }
 
 // ServeHTTP nhận request POST, đọc JSON body, gọi Service rồi trả kết quả.
-//
-// Tham số truy vấn ?metaOnly=true chỉ trả số dòng và thời gian chạy, bỏ phần
-// dữ liệu. Dùng khi muốn đo tốc độ mà không tải về khối JSON lớn.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Kiểm tra mothod truyền vào
 	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed - dùng POST")
+		writeError(w, http.StatusMethodNotAllowed, "Không hỗ trợ HTTP Method - dùng POST")
 		return
 	}
 
+	// Kiểm tra requestBody truyền vào
 	var body RequestBody
 	decoder := json.NewDecoder(r.Body)
-	// Báo lỗi ngay khi gõ sai tên trường. Nếu bỏ qua, gõ nhầm "materialGoodsId"
-	// thiếu chữ s sẽ khiến bộ lọc không có tác dụng mà không ai biết.
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "không parse được JSON body: "+err.Error())
+		writeError(w, http.StatusBadRequest, "Body không hợp lệ: "+err.Error())
 		return
 	}
 
-	params := QueryParams{
-		CompanyID:        body.CompanyID,
-		TypeLedger:       body.TypeLedger,
-		FromDate:         body.FromDate,
-		ToDate:           body.ToDate,
-		RepositoryIDs:    body.RepositoryIDs,
-		MaterialGoodsIDs: body.MaterialGoodsIDs,
-	}
-
-	rows, elapsedMs, err := h.service.GetTinhGiaXuatKho(r.Context(), params)
+	// Lấy dữ liệu, kiểm tra có lỗi thì trả lỗi
+	response, err := h.service.GetTinhGiaXuatKho(r.Context(), body)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	metaOnly := r.URL.Query().Get("metaOnly") == "true"
-
-	resp := Response{
-		RowCount:  len(rows),
-		ElapsedMs: elapsedMs,
-	}
-	if !metaOnly {
-		resp.Data = rows
-	}
-
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
+	if err := json.NewEncoder(w).Encode(response); err != nil {
 		log.Printf("lỗi encode response (có thể client đã đóng kết nối): %v", err)
 	}
 }
@@ -67,5 +46,5 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	err := json.NewEncoder(w).Encode(map[string]string{"error": msg})
 	if err != nil {
 		return
-	} //nolint:errcheck
+	}
 }

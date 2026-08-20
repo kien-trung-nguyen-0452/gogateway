@@ -18,22 +18,20 @@ var queryTemplate string
 
 var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
-// dateTimePattern khớp "2026-08-01" hoặc "2026-08-01 00:00:00".
-// Câu SQL được dựng bằng cách thay chuỗi, nên phải chặn định dạng ở đây
-// để không bị chèn lệnh.
-var dateTimePattern = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?$`)
+// datePattern định dạng "2026-08-01".
+var datePattern = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+
+// dateTimePattern định dạng "2026-08-01 00:00:00".
+var dateTimePattern = regexp.MustCompile(`^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$`)
 
 func NewService(conn clickhouse.Conn) *Service {
 	return &Service{conn: conn}
 }
 
 // GetTinhGiaXuatKho đọc dữ liệu thô phục vụ tính giá xuất kho.
-//
-// Trả về danh sách dòng theo đúng thứ tự ClickHouse sắp xếp, kèm thời gian
-// chạy query tính bằng mili giây.
-func (s *Service) GetTinhGiaXuatKho(ctx context.Context, p QueryParams) ([]Row, int64, error) {
+func (s *Service) GetTinhGiaXuatKho(ctx context.Context, p RequestBody) (*Response, error) {
 	if err := validateParams(p); err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 
 	sql := buildQuery(p)
@@ -42,83 +40,85 @@ func (s *Service) GetTinhGiaXuatKho(ctx context.Context, p QueryParams) ([]Row, 
 
 	rows, err := s.conn.Query(ctx, sql)
 	if err != nil {
-		return nil, 0, fmt.Errorf("query error: %w", err)
+		return nil, fmt.Errorf("query error: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var result []Row
 	for rows.Next() {
 		row, err := scanRow(rows)
 		if err != nil {
-			return nil, 0, fmt.Errorf("scan error: %w", err)
+			return nil, fmt.Errorf("scan error: %w", err)
 		}
 		result = append(result, row)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, 0, fmt.Errorf("row iteration error: %w", err)
+		return nil, fmt.Errorf("row iteration error: %w", err)
 	}
 
-	return result, time.Since(start).Milliseconds(), nil
+	response := &Response{
+		RowCount:  len(result),
+		ElapsedMs: time.Since(start).Milliseconds(),
+		Data:      result,
+	}
+	return response, nil
 }
 
 // buildQuery thay tham số vào query.sql.
-//
-// Hai bộ lọc kho và VTHH để rỗng khi người dùng không chọn, khi đó câu SQL
-// không có điều kiện tương ứng nghĩa là lấy tất cả.
-func buildQuery(p QueryParams) string {
-	repoFilter := ""
-	if len(p.RepositoryIDs) > 0 {
-		repoFilter = fmt.Sprintf(
+func buildQuery(requestBody RequestBody) string {
+	repositoryFilter := ""
+	if len(requestBody.RepositoryIDs) > 0 {
+		repositoryFilter = fmt.Sprintf(
 			"AND RepositoryID IN CAST([%s] AS Array(UUID))",
-			quoteJoin(p.RepositoryIDs),
+			quoteJoin(requestBody.RepositoryIDs),
 		)
 	}
 
 	materialFilter := ""
-	if len(p.MaterialGoodsIDs) > 0 {
+	if len(requestBody.MaterialGoodsIDs) > 0 {
 		materialFilter = fmt.Sprintf(
 			"AND MaterialGoodsID IN CAST([%s] AS Array(UUID))",
-			quoteJoin(p.MaterialGoodsIDs),
+			quoteJoin(requestBody.MaterialGoodsIDs),
 		)
 	}
 
 	sql := queryTemplate
-	sql = strings.ReplaceAll(sql, "{{COMPANY_ID}}", p.CompanyID)
-	sql = strings.ReplaceAll(sql, "{{TYPE_LEDGER}}", fmt.Sprintf("%d", p.TypeLedger))
-	sql = strings.ReplaceAll(sql, "{{FROM_DATE}}", normalizeDateTime(p.FromDate, "00:00:00"))
-	sql = strings.ReplaceAll(sql, "{{TO_DATE}}", normalizeDateTime(p.ToDate, "23:59:59"))
-	sql = strings.ReplaceAll(sql, "{{REPOSITORY_FILTER}}", repoFilter)
+	sql = strings.ReplaceAll(sql, "{{COMPANY_ID}}", requestBody.CompanyID)
+	sql = strings.ReplaceAll(sql, "{{TYPE_LEDGER}}", fmt.Sprintf("%d", requestBody.TypeLedger))
+	sql = strings.ReplaceAll(sql, "{{FROM_DATE}}", requestBody.FromDate)
+	sql = strings.ReplaceAll(sql, "{{TO_DATE}}", requestBody.ToDate)
+	sql = strings.ReplaceAll(sql, "{{REPOSITORY_FILTER}}", repositoryFilter)
 	sql = strings.ReplaceAll(sql, "{{MATERIAL_GOODS_FILTER}}", materialFilter)
 	return sql
 }
 
-// scanRow đọc một dòng kết quả ClickHouse thành Row.
-//
-// Thứ tự tham số phải khớp đúng thứ tự cột trong query.sql.
+/*
+scanRow đọc một dòng kết quả ClickHouse thành Row.
+- rowKind: 			col[0]  UInt8 — 0 là tồn đầu kỳ, 1 là phát sinh trong kỳ.
+- materialGoodsID: 	col[1]  UUID — mã VTHH.
+- repositoryID: 	col[2]  UUID — mã kho.
+- detailID: 		col[3]  UUID — query đã ifNull nên không còn Nullable.
+- referenceID: 		col[4]  UUID — ID chứng từ gốc.
+- typeID: 			col[5]  Int32 — query đã ifNull.
+- postedDate: 		col[6]  DateTime — ngày hạch toán.
+- mainIWQuantity: 	col[7]  Decimal128(10) — số lượng nhập theo đơn vị chính.
+- mainOWQuantity: 	col[8]  Decimal128(10) — số lượng xuất theo đơn vị chính.
+- iwAmount: 		col[9]  Decimal128(10) — giá trị nhập.
+- owAmount: 		col[10] Decimal128(10) — giá trị xuất.
+*/
 func scanRow(rows driverRows) (Row, error) {
 	var (
-		// col[0]  UInt8 — 0 là tồn đầu kỳ, 1 là phát sinh trong kỳ
-		rowKind uint8
-		// col[1]  UUID — mã VTHH
+		rowKind         uint8
 		materialGoodsID uuid.UUID
-		// col[2]  UUID — mã kho
-		repositoryID uuid.UUID
-		// col[3]  UUID — query đã ifNull nên không còn Nullable
-		detailID uuid.UUID
-		// col[4]  UUID — ID chứng từ gốc
-		referenceID uuid.UUID
-		// col[5]  Int32 — query đã ifNull
-		typeID int32
-		// col[6]  DateTime — ngày hạch toán
-		postedDate time.Time
-		// col[7]  Decimal128(10) — số lượng nhập theo đơn vị chính
-		mainIWQuantity decimal.Decimal
-		// col[8]  Decimal128(10) — số lượng xuất theo đơn vị chính
-		mainOWQuantity decimal.Decimal
-		// col[9]  Decimal128(10) — giá trị nhập
-		iwAmount decimal.Decimal
-		// col[10] Decimal128(10) — giá trị xuất
-		owAmount decimal.Decimal
+		repositoryID    uuid.UUID
+		detailID        uuid.UUID
+		referenceID     uuid.UUID
+		typeID          int32
+		postedDate      time.Time
+		mainIWQuantity  decimal.Decimal
+		mainOWQuantity  decimal.Decimal
+		iwAmount        decimal.Decimal
+		owAmount        decimal.Decimal
 	)
 
 	if err := rows.Scan(
@@ -145,54 +145,39 @@ func scanRow(rows driverRows) (Row, error) {
 	}, nil
 }
 
-// ── Hàm phụ trợ ─────────────────────────────────────────────────────────────
-
-// normalizeDateTime cho phép truyền "2026-08-01" và tự bù phần giờ.
-// FromDate bù 00:00:00, ToDate bù 23:59:59 để không sót chứng từ cuối kỳ.
-func normalizeDateTime(v, defaultTime string) string {
-	if len(v) == 10 {
-		return v + " " + defaultTime
-	}
-	return v
-}
-
 // validateParams kiểm tra tham số trước khi dựng câu SQL.
-//
-// Ngoài việc báo lỗi rõ ràng cho người gọi, đây còn là lớp chặn chèn lệnh SQL
-// vì câu truy vấn được dựng bằng cách thay chuỗi.
-func validateParams(p QueryParams) error {
-	if p.CompanyID == "" {
-		return fmt.Errorf("companyId không được rỗng")
+func validateParams(requestBody RequestBody) error {
+	if requestBody.CompanyID == "" {
+		return fmt.Errorf("CompanyID null")
 	}
-	if p.TypeLedger != 0 && p.TypeLedger != 1 {
-		return fmt.Errorf("typeLedger phải là 0 (sổ tài chính) hoặc 1 (sổ quản trị)")
+	if requestBody.TypeLedger != 0 && requestBody.TypeLedger != 1 {
+		return fmt.Errorf("TypeLedger = 0 or = 1")
 	}
-	if p.FromDate == "" || p.ToDate == "" {
-		return fmt.Errorf("fromDate và toDate không được rỗng")
+	if requestBody.FromDate == "" || requestBody.ToDate == "" {
+		return fmt.Errorf("FromDate và ToDate null")
 	}
-	if !dateTimePattern.MatchString(p.FromDate) {
-		return fmt.Errorf("fromDate sai định dạng, cần 'YYYY-MM-DD' hoặc 'YYYY-MM-DD HH:MM:SS': %s", p.FromDate)
+	if !dateTimePattern.MatchString(requestBody.FromDate) {
+		return fmt.Errorf("FromDate invalid format, 'YYYY-MM-DD HH:MM:SS': %s", requestBody.FromDate)
 	}
-	if !dateTimePattern.MatchString(p.ToDate) {
-		return fmt.Errorf("toDate sai định dạng, cần 'YYYY-MM-DD' hoặc 'YYYY-MM-DD HH:MM:SS': %s", p.ToDate)
+	if !dateTimePattern.MatchString(requestBody.ToDate) {
+		return fmt.Errorf("ToDate invalid format, 'YYYY-MM-DD HH:MM:SS': %s", requestBody.ToDate)
 	}
-	if normalizeDateTime(p.FromDate, "00:00:00") > normalizeDateTime(p.ToDate, "23:59:59") {
-		return fmt.Errorf("fromDate phải nhỏ hơn hoặc bằng toDate")
+	if requestBody.FromDate > requestBody.ToDate {
+		return fmt.Errorf("FromDate must be <= ToDate")
 	}
 
-	allIDs := []string{p.CompanyID}
-	allIDs = append(allIDs, p.RepositoryIDs...)
-	allIDs = append(allIDs, p.MaterialGoodsIDs...)
+	allIDs := []string{requestBody.CompanyID}
+	allIDs = append(allIDs, requestBody.RepositoryIDs...)
+	allIDs = append(allIDs, requestBody.MaterialGoodsIDs...)
 	for _, id := range allIDs {
 		if !uuidPattern.MatchString(id) {
-			return fmt.Errorf("ID không đúng định dạng UUID: %s", id)
+			return fmt.Errorf("ID invalid format UUID: %s", id)
 		}
 	}
 	return nil
 }
 
-// quoteJoin nối danh sách ID thành chuỗi dạng 'a', 'b', 'c' để đưa vào mệnh
-// đề IN của ClickHouse.
+// quoteJoin nối danh sách ID thành chuỗi dạng 'a', 'b', 'c' để đưa vào mệnh đề IN của ClickHouse.
 func quoteJoin(ids []string) string {
 	if len(ids) == 0 {
 		return ""
