@@ -11,27 +11,35 @@ WITH
     OrderPriority,
     BudgetItemID, CostSetID, StatisticsCodeID, ExpenseItemID,
     ContractID, DepartmentID, AccountingObjectID
-FROM eb.repository_ledger final
-WHERE PostedDate <= toDateTime('{{TO_DATE}}')
-  AND CompanyID IN CAST([{{COMPANY_IDS}}] AS Array(UUID))
+FROM
+    (
+    SELECT *,
+    row_number() OVER (
+    PARTITION BY ReferenceID, DetailID
+    ORDER BY __source_ts_ms DESC
+    ) AS rn
+    FROM eb.repository_ledger
+    WHERE PostedDate <= toDateTime('{{TO_DATE}}')
+    AND CompanyID IN CAST([{{COMPANY_IDS}}] AS Array(UUID))
     {{REPOSITORY_FILTER}}
     {{MATERIAL_GOODS_FILTER}}
-  AND (TypeLedger = 0 OR TypeLedger = 2)
-  AND __deleted = 0
-  AND (
+    AND (TypeLedger = 0 OR TypeLedger = 2)
+    AND (
     TypeID NOT IN (420, 421, 422)
-   OR {{IS_COMPANY_BUSINESS_TYPE_GAS}} <> 1
-   OR (
+    OR {{IS_COMPANY_BUSINESS_TYPE_GAS}} <> 1
+    OR (
     TypeID IN (420, 421, 422)
-  AND {{IS_COMPANY_BUSINESS_TYPE_GAS}} = 1
-  AND (
+    AND {{IS_COMPANY_BUSINESS_TYPE_GAS}} = 1
+    AND (
     (has(CAST([{{OWN_REPOSITORY_IDS}}] AS Array(UUID)), RepositoryID)
-  AND CompanyID = '{{PRIMARY_COMPANY_ID}}')
-   OR (has(CAST([{{OTHER_REPOSITORY_IDS}}] AS Array(UUID)), RepositoryID)
-  AND CompanyID != '{{PRIMARY_COMPANY_ID}}')
+    AND CompanyID = '{{PRIMARY_COMPANY_ID}}')
+    OR (has(CAST([{{OTHER_REPOSITORY_IDS}}] AS Array(UUID)), RepositoryID)
+    AND CompanyID != '{{PRIMARY_COMPANY_ID}}')
     )
     )
     )
+    )
+WHERE rn = 1 AND __deleted = 0
     ),
 
     opening_balance AS
@@ -221,6 +229,6 @@ FROM unit_converted
 ORDER BY
     RepositoryCode, MaterialGoodsCode,
     RefDate ASC NULLS FIRST, InRefOrder,
-    /*replaceRegexpAll(RefNo, '[^a-zA-Z0-9]', ''),*/
+  /*  replaceRegexpAll(RefNo, '[^a-zA-Z0-9]', ''),*/
     RefNo, OrderPriority, ReferenceID, DetailID
     SETTINGS enable_optimize_predicate_expression = 0;
