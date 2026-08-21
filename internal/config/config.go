@@ -29,6 +29,7 @@ func Load() (Config, error) {
 		GRPCPort:   getEnv("GRPC_PORT", "9090"),
 	}
 
+	//
 	if cfg.CHPassword == "" {
 		return cfg, fmt.Errorf("bien moi truong CH_PASSWORD chua duoc set")
 	}
