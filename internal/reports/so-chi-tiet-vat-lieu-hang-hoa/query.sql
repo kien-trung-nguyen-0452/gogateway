@@ -17,7 +17,6 @@ WHERE PostedDate <= toDateTime('{{TO_DATE}}')
     {{REPOSITORY_FILTER}}
     {{MATERIAL_GOODS_FILTER}}
   AND (TypeLedger = 0 OR TypeLedger = 2)
-  AND __deleted = 0
   AND (
     TypeID NOT IN (420, 421, 422)
    OR {{IS_COMPANY_BUSINESS_TYPE_GAS}} <> 1
