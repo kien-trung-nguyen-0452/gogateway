@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -29,6 +31,11 @@ import (
 	tk "softdream.vn/go-gateway/internal/reports/so-chi-tiet-cac-tai-khoan"
 	tkpb "softdream.vn/go-gateway/internal/so-chi-tiet-cac-tai-khoan/pb"
 )
+
+// isShuttingDown - dung chung giua HTTP /health va gRPC health server de
+// ca 2 protocol cung bao "NOT_SERVING" o dung 1 thoi diem trong luc dang
+// tat em (graceful shutdown), khong bi lech trang thai giua 2 ben.
+var isShuttingDown atomic.Bool
 
 func main() {
 	cfg, err := config.Load()
@@ -60,6 +67,38 @@ func main() {
 	// api.NewRouter chua nhan handler moi. Dang ky truc tiep o day de khong
 	// phai sua chu ky ham dung chung; khi nao on dinh thi don vao NewRouter.
 	mux.Handle("/api/so-chi-tiet-tai-khoan", taiKhoanHandler)
+
+	// ---- HTTP /health -------------------------------------------------
+	// Endpoint HTTP thuan (khac gRPC health server ben duoi) - de cho
+	// Prometheus/load balancer/script deploy kiem tra bang curl don gian,
+	// khong can hieu giao thuc gRPC health protocol.
+	//
+	// Kiem tra THAT (khong chi tra 200 cung): ping ClickHouse - neu mat
+	// ket noi CH, bao 503 de load balancer ngung dieu huong traffic vao
+	// instance nay, thay vi nhan request roi moi fail o tang xu ly.
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		if isShuttingDown.Load() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]string{"status": "shutting_down"})
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
+
+		if err := conn.Ping(ctx); err != nil {
+			log.Printf("health check that bai - mat ket noi ClickHouse: %v", err)
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"status": "unhealthy",
+				"error":  "clickhouse unreachable",
+			})
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	})
 
 	// ---- HTTP server - CHAY TRONG GOROUTINE, khong bloc luong chinh -------
 	// (truoc day goi truc tiep ListenAndServe() o day se CHAN LUON, khien
@@ -129,6 +168,7 @@ func main() {
 	<-quit
 
 	log.Println("Dang tat service...")
+	isShuttingDown.Store(true)
 	healthSrv.SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)
 
 	done := make(chan struct{})
