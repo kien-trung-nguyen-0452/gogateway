@@ -28,14 +28,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Lấy dữ liệu, kiểm tra có lỗi thì trả lỗi
-	response, err := h.service.GetTinhGiaXuatKho(r.Context(), body)
+	rows, err := h.service.GetTinhGiaXuatKho(r.Context(), body)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
+	if err := json.NewEncoder(w).Encode(rows); err != nil {
 		log.Printf("lỗi encode response (có thể client đã đóng kết nối): %v", err)
 	}
 }

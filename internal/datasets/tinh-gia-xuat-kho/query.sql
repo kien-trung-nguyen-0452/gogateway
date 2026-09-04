@@ -33,9 +33,9 @@ WITH ledger_scope AS
 SELECT *
 FROM
 (
-    -- RowKind = 0: Tồn đầu kỳ, lấy hết dữ liệu trước FROM_DATE
+    -- IsOpeningStock = true: Tồn đầu kỳ, lấy hết dữ liệu trước FROM_DATE
     SELECT
-        toUInt8(0)                                              AS RowKind,
+        toBool(1)                                               AS IsOpeningStock,
         MaterialGoodsID                                         AS MaterialGoodsID,
         RepositoryID                                            AS RepositoryID,
         toUUID('00000000-0000-0000-0000-000000000000')          AS DetailID,
@@ -54,9 +54,9 @@ FROM
 
     UNION ALL
 
-    -- RowKind = 1: Phát sinh trong kỳ, lấy hết dữ liệu sau FROM_DATE
+    -- IsOpeningStock = false: Phát sinh trong kỳ, lấy hết dữ liệu sau FROM_DATE
     SELECT
-        toUInt8(1)                                            AS RowKind,
+        toBool(0)                                             AS IsOpeningStock,
         MaterialGoodsID                                       AS MaterialGoodsID,
         RepositoryID                                          AS RepositoryID,
         DetailID                                              AS DetailID,
@@ -71,4 +71,5 @@ FROM
     WHERE PostedDate >= toDateTime('{{FROM_DATE}}')
 )
 -- Gom theo (MaterialGoodsID, RepositoryID) để xử lý từng nhóm
-ORDER BY MaterialGoodsID, RepositoryID, RowKind, PostedDate
+-- IsOpeningStock DESC để dòng tồn đầu kỳ (true) đứng trước dòng phát sinh (false)
+ORDER BY MaterialGoodsID, RepositoryID, IsOpeningStock DESC, PostedDate

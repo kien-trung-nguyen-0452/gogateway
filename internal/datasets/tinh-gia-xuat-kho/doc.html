@@ -92,7 +92,7 @@ footer{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--border);
     <li><a href="#endpoint">Endpoint</a></li>
     <li><a href="#request">Tham số đầu vào</a></li>
     <li><a href="#response">Dữ liệu trả về</a></li>
-    <li><a href="#rowkind">Hai loại dòng — rowKind</a></li>
+    <li><a href="#isopeningstock">Hai loại dòng — isOpeningStock</a></li>
     <li><a href="#files">Cấu trúc file</a></li>
     <li><a href="#luong">Luồng xử lý</a></li>
   </ol>
@@ -182,7 +182,7 @@ Content-Type: application/json</code></pre>
 <h3>Mỗi phần tử của <code>data</code></h3>
 <table>
   <tr><th>Trường JSON</th><th>Kiểu JSON</th><th>Ý nghĩa</th></tr>
-  <tr><td><code>rowKind</code></td><td>number</td><td><code>0</code> tồn đầu kỳ, <code>1</code> phát sinh trong kỳ.</td></tr>
+  <tr><td><code>isOpeningStock</code></td><td>boolean</td><td><code>true</code> tồn đầu kỳ, <code>false</code> phát sinh trong kỳ.</td></tr>
   <tr><td><code>materialGoodsID</code></td><td>string</td><td>ID vật tư hàng hoá.</td></tr>
   <tr><td><code>repositoryID</code></td><td>string</td><td>ID kho.</td></tr>
   <tr><td><code>detailId</code></td><td>string</td><td>ID dòng chi tiết chứng từ. Dùng để ghi giá vốn ngược lại.</td></tr>
@@ -214,7 +214,7 @@ Content-Type: application/json</code></pre>
   "elapsedMs": 412,
   "data": [
     {
-      "rowKind": 0,
+      "isOpeningStock": true,
       "materialGoodsID": "0efbfb70-7b22-f44a-a357-2214f731d45d",
       "repositoryID":    "e780979a-63f5-d247-a3ea-df6ee086eb62",
       "detailId":        "00000000-0000-0000-0000-000000000000",
@@ -227,7 +227,7 @@ Content-Type: application/json</code></pre>
       "owAmount": "0"
     },
     {
-      "rowKind": 1,
+      "isOpeningStock": false,
       "materialGoodsID": "0efbfb70-7b22-f44a-a357-2214f731d45d",
       "repositoryID":    "e780979a-63f5-d247-a3ea-df6ee086eb62",
       "detailId":        "ecea250f-ef48-1541-8461-7bb8c7661e77",
@@ -240,7 +240,7 @@ Content-Type: application/json</code></pre>
       "owAmount": "0"
     },
     {
-      "rowKind": 1,
+      "isOpeningStock": false,
       "materialGoodsID": "0efbfb70-7b22-f44a-a357-2214f731d45d",
       "repositoryID":    "e780979a-63f5-d247-a3ea-df6ee086eb62",
       "detailId":        "aa11bb22-cc33-dd44-ee55-ff6677889900",
@@ -260,13 +260,13 @@ Dòng cuối là chứng từ xuất, <code>owAmount</code> bằng <code>0</code
 <code>detailId</code>.
 </p>
 
-<h2 id="rowkind"><span class="num">5</span>Hai loại dòng — rowKind</h2>
+<h2 id="isopeningstock"><span class="num">5</span>Hai loại dòng — isOpeningStock</h2>
 <p>
-Một lần gọi trả về hai loại dòng trộn chung trong cùng mảng, phân biệt bằng <code>rowKind</code>.
+Một lần gọi trả về hai loại dòng trộn chung trong cùng mảng, phân biệt bằng <code>isOpeningStock</code>.
 Làm vậy để bên nhận chỉ cần <b>một</b> lần gọi và <b>một</b> vòng lặp.
 </p>
 <table>
-  <tr><th></th><th>rowKind = 0 — tồn đầu kỳ</th><th>rowKind = 1 — phát sinh</th></tr>
+  <tr><th></th><th>isOpeningStock = true — tồn đầu kỳ</th><th>isOpeningStock = false — phát sinh</th></tr>
   <tr><th>Nguồn</th><td>Toàn bộ dữ liệu <b>trước</b> <code>fromDate</code></td><td>Dữ liệu từ <code>fromDate</code> đến <code>toDate</code></td></tr>
   <tr><th>Số dòng</th><td>Tối đa 1 dòng cho mỗi cặp (VTHH × Kho)</td><td>Giữ nguyên từng dòng sổ</td></tr>
   <tr><th>Cách tính</th><td>Đã gộp <code>sum(nhập − xuất)</code></td><td>Không gộp</td></tr>
@@ -288,7 +288,7 @@ tongGiaTriNhap  += iwAmount
 donGiaBinhQuan  = tongGiaTriNhap / tongSoLuongNhap</code></pre>
 
 <div class="note warn">
-  <b>Không phải nhóm nào cũng có dòng rowKind = 0</b>
+  <b>Không phải nhóm nào cũng có dòng isOpeningStock = true</b>
   <p>
   Mặt hàng mới phát sinh lần đầu trong kỳ thì không có tồn đầu. Query cũng loại bỏ
   nhóm có tồn bằng <code>0</code> cả về lượng lẫn giá trị (mệnh đề <code>HAVING</code>).
@@ -296,7 +296,7 @@ donGiaBinhQuan  = tongGiaTriNhap / tongSoLuongNhap</code></pre>
   <p>
   Vì vậy khi cắt nhóm bên Java, phải cắt theo <b>cặp
   (<code>materialGoodsID</code>, <code>repositoryID</code>)</b> đổi giá trị —
-  <b>không</b> được cắt theo sự xuất hiện của <code>rowKind = 0</code>.
+  <b>không</b> được cắt theo sự xuất hiện của <code>isOpeningStock = true</code>.
   </p>
 </div>
 

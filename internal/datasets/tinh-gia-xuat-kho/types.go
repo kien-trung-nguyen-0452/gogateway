@@ -32,7 +32,7 @@ RequestBody là cấu trúc JSON nhận từ client.
 - MaterialGoodsIDs: Danh sách VTHH, lọc theo MaterialGoodsID, rỗng là tất cả VTHH.
 */
 type RequestBody struct {
-	CompanyID        string   `json:"companyId"`
+	CompanyID        string   `json:"companyID"`
 	TypeLedger       int      `json:"typeLedger"`
 	FromDate         string   `json:"fromDate"`
 	ToDate           string   `json:"toDate"`
@@ -41,20 +41,8 @@ type RequestBody struct {
 }
 
 /*
-Response là cấu trúc JSON trả về cho client.
-- RowCount: 	Tổng số dòng, tính cả dòng tồn đầu kỳ.
-- ElapsedMs: 	Thời gian ClickHouse chạy query, tính bằng mili giây.
-- Data: 		Dữ liệu trả về.
-*/
-type Response struct {
-	RowCount  int   `json:"rowCount"`
-	ElapsedMs int64 `json:"elapsedMs"`
-	Data      []Row `json:"data"`
-}
-
-/*
 Row là một dòng dữ liệu trả về cho Client.
-- RowKind: 			Loại dòng, 0 là tồn đầu kỳ, 1 là phát sinh trong kỳ.
+- IsOpeningStock: 	true là dòng tồn đầu kỳ, false là dòng phát sinh trong kỳ.
 - MaterialGoodsID: 	ID VTHH.
 - RepositoryID: 	ID Kho.
 - DetailID: 		ID chứng từ, dùng để ghi giá vốn ngược lại.
@@ -67,12 +55,12 @@ Row là một dòng dữ liệu trả về cho Client.
 - OWAmount: 		Giá trị xuất, đã quy về đơn vị chính.
 */
 type Row struct {
-	RowKind         int8            `json:"rowKind"`
+	IsOpeningStock  bool            `json:"isOpeningStock"`
 	MaterialGoodsID string          `json:"materialGoodsID"`
 	RepositoryID    string          `json:"repositoryID"`
-	DetailID        string          `json:"detailId"`
-	ReferenceID     string          `json:"referenceId"`
-	TypeID          int32           `json:"typeId"`
+	DetailID        string          `json:"detailID"`
+	ReferenceID     string          `json:"referenceID"`
+	TypeID          int32           `json:"typeID"`
 	PostedDate      time.Time       `json:"postedDate"`
 	MainIWQuantity  decimal.Decimal `json:"mainIwQuantity"`
 	MainOWQuantity  decimal.Decimal `json:"mainOwQuantity"`

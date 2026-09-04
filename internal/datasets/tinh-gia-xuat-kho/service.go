@@ -4,6 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"log"
 	"regexp"
 	"strings"
 	"time"
@@ -28,8 +29,8 @@ func NewService(conn clickhouse.Conn) *Service {
 	return &Service{conn: conn}
 }
 
-// GetTinhGiaXuatKho đọc dữ liệu thô phục vụ tính giá xuất kho.
-func (s *Service) GetTinhGiaXuatKho(ctx context.Context, p RequestBody) (*Response, error) {
+// GetTinhGiaXuatKho đọc dữ liệu thô phục vụ tính giá xuất kho, trả thẳng danh sách dòng sổ kho.
+func (s *Service) GetTinhGiaXuatKho(ctx context.Context, p RequestBody) ([]Row, error) {
 	if err := validateParams(p); err != nil {
 		return nil, err
 	}
@@ -44,7 +45,8 @@ func (s *Service) GetTinhGiaXuatKho(ctx context.Context, p RequestBody) (*Respon
 	}
 	defer func() { _ = rows.Close() }()
 
-	var result []Row
+	// Khởi tạo slice rỗng để JSON encode ra [] thay vì null khi không có dòng nào
+	result := make([]Row, 0)
 	for rows.Next() {
 		row, err := scanRow(rows)
 		if err != nil {
@@ -56,12 +58,8 @@ func (s *Service) GetTinhGiaXuatKho(ctx context.Context, p RequestBody) (*Respon
 		return nil, fmt.Errorf("row iteration error: %w", err)
 	}
 
-	response := &Response{
-		RowCount:  len(result),
-		ElapsedMs: time.Since(start).Milliseconds(),
-		Data:      result,
-	}
-	return response, nil
+	log.Printf("repository-ledger: %d dòng, %d ms", len(result), time.Since(start).Milliseconds())
+	return result, nil
 }
 
 // buildQuery thay tham số vào query.sql.
@@ -94,7 +92,7 @@ func buildQuery(requestBody RequestBody) string {
 
 /*
 scanRow đọc một dòng kết quả ClickHouse thành Row.
-- rowKind: 			col[0]  UInt8 — 0 là tồn đầu kỳ, 1 là phát sinh trong kỳ.
+- isOpeningStock: 	col[0]  Bool — true là tồn đầu kỳ, false là phát sinh trong kỳ.
 - materialGoodsID: 	col[1]  UUID — mã VTHH.
 - repositoryID: 	col[2]  UUID — mã kho.
 - detailID: 		col[3]  UUID — query đã ifNull nên không còn Nullable.
@@ -108,7 +106,7 @@ scanRow đọc một dòng kết quả ClickHouse thành Row.
 */
 func scanRow(rows driverRows) (Row, error) {
 	var (
-		rowKind         uint8
+		isOpeningStock  bool
 		materialGoodsID uuid.UUID
 		repositoryID    uuid.UUID
 		detailID        uuid.UUID
@@ -122,7 +120,7 @@ func scanRow(rows driverRows) (Row, error) {
 	)
 
 	if err := rows.Scan(
-		&rowKind,
+		&isOpeningStock,
 		&materialGoodsID, &repositoryID,
 		&detailID, &referenceID, &typeID, &postedDate,
 		&mainIWQuantity, &mainOWQuantity, &iwAmount, &owAmount,
@@ -131,7 +129,7 @@ func scanRow(rows driverRows) (Row, error) {
 	}
 
 	return Row{
-		RowKind:         int8(rowKind),
+		IsOpeningStock:  isOpeningStock,
 		MaterialGoodsID: materialGoodsID.String(),
 		RepositoryID:    repositoryID.String(),
 		DetailID:        detailID.String(),
