@@ -132,7 +132,8 @@ func (s *Service) StreamSoChiTiet(
 		}
 	}
 
-	kindMap, nameMap, err := s.resolveAccountInfo(ctx, p.PrimaryCompanyID, accounts)
+// 	kindMap, nameMap, err := s.resolveAccountInfo(ctx, p.PrimaryCompanyID, accounts, accountNameColumn(p.FromDate))
+	kindMap, nameMap, err := s.resolveAccountInfo(ctx, p.PrimaryCompanyID, accounts, accountNameColumn(p.FromDate))
 	if err != nil {
 		return 0, fmt.Errorf("resolve account info: %w", err)
 	}
@@ -720,18 +721,36 @@ func (s *Service) expandAccounts(
 	return out, nil
 }
 
+// accountNameColumn chọn cột tên tài khoản trong dim_account theo năm của kỳ
+// báo cáo (FromDate).
+//
+// Chuẩn mực/thông tư mới hiệu lực từ năm 2026 đổi tên một số tài khoản. DWH
+// sẽ bổ sung cột account_name_99 để giữ SONG SONG cả tên cũ (account_name_vi,
+// vẫn dùng cho dữ liệu trước 2026) lẫn tên mới, không ghi đè.
+//
+// CẢNH BÁO: cột account_name_99 CHƯA TỒN TẠI trên ClickHouse tại thời điểm
+// viết đoạn này (2026-08-23) — báo cáo có FromDate từ năm 2026 trở đi sẽ lỗi
+// "column not found" cho đến khi DWH bổ sung cột. Cần phối hợp thời điểm
+// deploy với team DWH, không tự ý bật sớm.
+func accountNameColumn(fromDate string) string {
+	if t, err := time.Parse("2006-01-02", fromDate); err == nil && t.Year() >= 2026 {
+		return "account_name_99"
+	}
+	return "account_name_vi"
+}
+
 // resolveAccountInfo lấy CẢ kind lẫn tên trong MỘT truy vấn.
 //
-// dim_account có account_name_vi và account_name_en; báo cáo dùng bản tiếng
-// Việt.
+// nameCol: xem accountNameColumn — account_name_vi (mặc định) hoặc
+// account_name_99 (kỳ báo cáo từ 2026).
 func (s *Service) resolveAccountInfo(
-	ctx context.Context, companyID string, accounts []string,
+	ctx context.Context, companyID string, accounts []string, nameCol string,
 ) (map[string]int32, map[string]string, error) {
 	sql := fmt.Sprintf(`
-		SELECT account_number, account_group_kind, account_name_vi
+		SELECT account_number, account_group_kind, %s
 		FROM eb_dwh.dim_account
 		WHERE company_id = '%s' AND account_number IN (%s) AND is_current = 1`,
-		companyID, quoteJoin(accounts))
+		nameCol, companyID, quoteJoin(accounts))
 
 	rows, err := s.conn.Query(ctx, sql)
 	if err != nil {
@@ -999,11 +1018,32 @@ func quoteJoin(ids []string) string {
 	return strings.Join(q, ", ")
 }
 
+// sqlServerUUIDSwap đảo byte 3 nhóm đầu của UUID (time_low 4B, time_mid 2B,
+// time_hi_and_version 2B) — bù cho cách SQL Server UNIQUEIDENTIFIER lưu byte
+// khác chuẩn RFC4122. clock_seq + node (8 byte cuối) giữ nguyên.
+//
+// company_id đã được PHÍA JAVA swap trước khi gửi vào gogateway (xem
+// SqlServerUuidSwap.swap/Common.revertUUID bên Java, và comment "đã swap
+// UUID phía Java" ở QueryParams.CompanyIDs) nên WHERE khớp đúng cột UUID
+// trong ClickHouse. Nhưng reference_id ĐỌC RA từ ClickHouse chưa được ai
+// swap lại — nếu trả thẳng ra, UUID bị lệch byte so với ReferenceID thật
+// trong OLTP, khiến reflink ở frontend trỏ sai chứng từ. Áp swap này (hàm tự
+// nghịch đảo, gọi 2 lần ra lại UUID gốc) ngay tại nguồn để mọi consumer nhận
+// đúng UUID mà không cần biết đặc thù SQL Server.
+func sqlServerUUIDSwap(u uuid.UUID) uuid.UUID {
+	var out uuid.UUID
+	out[0], out[1], out[2], out[3] = u[3], u[2], u[1], u[0]
+	out[4], out[5] = u[5], u[4]
+	out[6], out[7] = u[7], u[6]
+	copy(out[8:], u[8:])
+	return out
+}
+
 func uuidOrEmpty(u *uuid.UUID) string {
 	if u == nil {
 		return ""
 	}
-	return u.String()
+	return sqlServerUUIDSwap(*u).String()
 }
 
 func strOrEmpty(s *string) string {
