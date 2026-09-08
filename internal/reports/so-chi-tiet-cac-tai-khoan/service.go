@@ -36,6 +36,12 @@ var queryTemplate string
 //go:embed query_opening.sql
 var openingTemplate string
 
+//go:embed staging_source.sql
+var stagingSourceExpr string
+
+// factSourceExpr là giá trị {{GL_SOURCE}} mặc định — đọc thẳng fact table.
+const factSourceExpr = "eb_dwh.fact_gl_entry_line AS f FINAL"
+
 var (
 	uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
@@ -52,9 +58,16 @@ var (
 
 type Service struct {
 	conn clickhouse.Conn
+
+	// useStaging: true = doc tu eb_staging.stg_general_ledger(_detail) thay vi
+	// eb_dwh.fact_gl_entry_line - xem staging_source.sql va
+	// config.SoChiTietTaiKhoanUseStaging. Dung tam thoi khi pipeline fact loi.
+	useStaging bool
 }
 
-func NewService(conn clickhouse.Conn) *Service { return &Service{conn: conn} }
+func NewService(conn clickhouse.Conn, useStaging bool) *Service {
+	return &Service{conn: conn, useStaging: useStaging}
+}
 
 type driverRows interface {
 	Scan(dest ...any) error
@@ -132,7 +145,7 @@ func (s *Service) StreamSoChiTiet(
 		}
 	}
 
-// 	kindMap, nameMap, err := s.resolveAccountInfo(ctx, p.PrimaryCompanyID, accounts, accountNameColumn(p.FromDate))
+	// 	kindMap, nameMap, err := s.resolveAccountInfo(ctx, p.PrimaryCompanyID, accounts, accountNameColumn(p.FromDate))
 	kindMap, nameMap, err := s.resolveAccountInfo(ctx, p.PrimaryCompanyID, accounts, accountNameColumn(p.FromDate))
 	if err != nil {
 		return 0, fmt.Errorf("resolve account info: %w", err)
@@ -151,7 +164,7 @@ func (s *Service) StreamSoChiTiet(
 		seen:     make(map[string]bool, len(accounts)),
 	}
 
-	sql := buildDetailQuery(companyIDs, accounts, p, typeLedger, noCol)
+	sql := buildDetailQuery(companyIDs, accounts, p, typeLedger, noCol, s.useStaging)
 	rows, err := s.conn.Query(ctx, sql)
 	if err != nil {
 		return 0, fmt.Errorf("query error: %w", err)
@@ -487,6 +500,7 @@ func applyKindClosing(r *Row, net, netOrig decimal.Decimal, kind int32) {
 //     hai về non-nullable bằng coalesce, rồi scan vào giá trị.
 func buildDetailQuery(
 	companyIDs, accounts []string, p QueryParams, typeLedger int, noCol string,
+	useStaging bool,
 ) string {
 	sql := queryTemplate
 
@@ -624,19 +638,26 @@ func buildDetailQuery(
 		sql = strings.ReplaceAll(sql, "{{ORDER_TAIL}}", "no")
 	}
 
-	return applyCommonPlaceholders(sql, companyIDs, accounts, p, typeLedger)
+	return applyCommonPlaceholders(sql, companyIDs, accounts, p, typeLedger, useStaging)
 }
 
 func buildOpeningQuery(
-	companyIDs, accounts []string, p QueryParams, typeLedger int,
+	companyIDs, accounts []string, p QueryParams, typeLedger int, useStaging bool,
 ) string {
-	return applyCommonPlaceholders(openingTemplate, companyIDs, accounts, p, typeLedger)
+	return applyCommonPlaceholders(openingTemplate, companyIDs, accounts, p, typeLedger, useStaging)
 }
 
 func applyCommonPlaceholders(
 	sql string, companyIDs, accounts []string, p QueryParams, typeLedger int,
+	useStaging bool,
 ) string {
 	accList := quoteJoin(accounts)
+
+	glSource := factSourceExpr
+	if useStaging {
+		glSource = stagingSourceExpr
+	}
+	sql = strings.ReplaceAll(sql, "{{GL_SOURCE}}", glSource)
 
 	sql = strings.ReplaceAll(sql, "{{COMPANY_IDS}}", quoteJoin(companyIDs))
 	sql = strings.ReplaceAll(sql, "{{FROM_DATE}}", p.FromDate)
@@ -784,7 +805,7 @@ func (s *Service) resolveAccountInfo(
 func (s *Service) loadOpeningBalances(
 	ctx context.Context, companyIDs, accounts []string, p QueryParams, typeLedger int,
 ) (map[string]balance, error) {
-	rows, err := s.conn.Query(ctx, buildOpeningQuery(companyIDs, accounts, p, typeLedger))
+	rows, err := s.conn.Query(ctx, buildOpeningQuery(companyIDs, accounts, p, typeLedger, s.useStaging))
 	if err != nil {
 		return nil, err
 	}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 )
 
 // Config chua toan bo cau hinh service, doc tu bien moi truong.
@@ -16,6 +17,14 @@ type Config struct {
 	CHDatabase string
 	HTTPPort   string
 	GRPCPort   string
+
+	// SoChiTietTaiKhoanUseStaging: true = doc tu bang eb_staging thay vi
+	// eb_dwh.fact_gl_entry_line. Bat tam thoi bang bien moi truong
+	// SO_CHI_TIET_TAI_KHOAN_DATA_SOURCE=staging khi pipeline fact bi loi,
+	// khong can deploy lai code. Gia tri mac dinh (khong set, hoac bat ky
+	// gia tri nao khac "staging") van la fact - an toan, khong doi hanh vi
+	// hien tai.
+	SoChiTietTaiKhoanUseStaging bool
 }
 
 func Load() (Config, error) {
@@ -27,6 +36,9 @@ func Load() (Config, error) {
 		CHDatabase: getEnv("CH_DATABASE", "eb"),
 		HTTPPort:   getEnv("HTTP_PORT", "8089"),
 		GRPCPort:   getEnv("GRPC_PORT", "9090"),
+
+		SoChiTietTaiKhoanUseStaging: strings.EqualFold(
+			getEnv("SO_CHI_TIET_TAI_KHOAN_DATA_SOURCE", "fact"), "staging"),
 	}
 
 	if cfg.CHPassword == "" {

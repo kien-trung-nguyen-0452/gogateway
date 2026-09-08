@@ -53,7 +53,9 @@ func main() {
 	soChiTietHandler := so_chi_tiet_vat_lieu_hang_hoa.NewHandler(soChiTietService)
 
 	// MOI THEM
-	taiKhoanService := tk.NewService(conn)
+	// useStaging: xem config.SoChiTietTaiKhoanUseStaging - bat tam thoi bang
+	// SO_CHI_TIET_TAI_KHOAN_DATA_SOURCE=staging khi pipeline fact bi loi.
+	taiKhoanService := tk.NewService(conn, cfg.SoChiTietTaiKhoanUseStaging)
 	taiKhoanHandler := tk.NewHandler(taiKhoanService)
 
 	mux := api.NewRouter(tichLuyHandler, soChiTietHandler)
