@@ -24,6 +24,13 @@
 // Tồn đầu kỳ dùng nguyên tệ cho SoTon bất kể typeShowCurrency, trong khi dòng
 // chi tiết thì đổi theo tham số. Xem ghi chú đầy đủ ở query_opening.sql. Giữ
 // nguyên để khớp OLTP; dev sau quyết định có sửa không.
+//
+// FALLBACK STAGING — giống so-chi-tiet-cac-tai-khoan
+// ---------------------------------------------------
+// useStaging bật đọc từ eb_staging.stg_general_ledger(_detail) thay vì
+// eb_dwh.fact_gl_entry_line khi pipeline fact bị lỗi, không cần deploy lại
+// code. Xem staging_source.sql và config.SoKeToanChiTietQuyTienMatUseStaging
+// (bật bằng SO_KE_TOAN_CHI_TIET_QUY_TIEN_MAT_DATA_SOURCE=staging).
 package so_ke_toan_chi_tiet_quy_tien_mat
 
 import (
@@ -45,6 +52,12 @@ var queryTemplate string
 //go:embed query_opening.sql
 var openingTemplate string
 
+//go:embed staging_source.sql
+var stagingSourceExpr string
+
+// factSourceExpr là giá trị {{GL_SOURCE}} mặc định — đọc thẳng fact table.
+const factSourceExpr = "eb_dwh.fact_gl_entry_line AS f"
+
 var (
 	uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
@@ -58,9 +71,17 @@ var (
 
 type Service struct {
 	conn clickhouse.Conn
+
+	// useStaging: true = doc tu eb_staging.stg_general_ledger(_detail) thay vi
+	// eb_dwh.fact_gl_entry_line - xem staging_source.sql va
+	// config.SoKeToanChiTietQuyTienMatUseStaging. Dung tam thoi khi pipeline
+	// fact loi, giong so-chi-tiet-cac-tai-khoan.
+	useStaging bool
 }
 
-func NewService(conn clickhouse.Conn) *Service { return &Service{conn: conn} }
+func NewService(conn clickhouse.Conn, useStaging bool) *Service {
+	return &Service{conn: conn, useStaging: useStaging}
+}
 
 type driverRows interface {
 	Scan(dest ...any) error
@@ -162,7 +183,7 @@ func (s *Service) StreamSoQuy(
 		typeShowCurrency: p.TypeShowCurrency,
 	}
 
-	sql := buildDetailQuery(companyIDs, accounts, p, noCol)
+	sql := buildDetailQuery(companyIDs, accounts, p, noCol, s.useStaging)
 	rows, err := s.conn.Query(ctx, sql)
 	if err != nil {
 		return 0, fmt.Errorf("query error: %w", err)
@@ -361,7 +382,7 @@ func (w *walker) finish() error {
 // =============================================================================
 
 func buildDetailQuery(
-	companyIDs, accounts []string, p QueryParams, noCol string,
+	companyIDs, accounts []string, p QueryParams, noCol string, useStaging bool,
 ) string {
 	sql := queryTemplate
 
@@ -444,17 +465,23 @@ func buildDetailQuery(
 		sql = strings.ReplaceAll(sql, "{{GROUP_BY_CLAUSE}}", "")
 	}
 
-	return applyCommonPlaceholders(sql, companyIDs, accounts, p)
+	return applyCommonPlaceholders(sql, companyIDs, accounts, p, useStaging)
 }
 
-func buildOpeningQuery(companyIDs, accounts []string, p QueryParams) string {
-	return applyCommonPlaceholders(openingTemplate, companyIDs, accounts, p)
+func buildOpeningQuery(companyIDs, accounts []string, p QueryParams, useStaging bool) string {
+	return applyCommonPlaceholders(openingTemplate, companyIDs, accounts, p, useStaging)
 }
 
 func applyCommonPlaceholders(
-	sql string, companyIDs, accounts []string, p QueryParams,
+	sql string, companyIDs, accounts []string, p QueryParams, useStaging bool,
 ) string {
 	accList := quoteJoin(accounts)
+
+	glSource := factSourceExpr
+	if useStaging {
+		glSource = stagingSourceExpr
+	}
+	sql = strings.ReplaceAll(sql, "{{GL_SOURCE}}", glSource)
 
 	sql = strings.ReplaceAll(sql, "{{COMPANY_IDS}}", quoteJoin(companyIDs))
 	sql = strings.ReplaceAll(sql, "{{FROM_DATE}}", p.FromDate)
@@ -552,7 +579,7 @@ func (s *Service) expandAccounts(
 func (s *Service) loadOpeningBalances(
 	ctx context.Context, companyIDs, accounts []string, p QueryParams,
 ) (map[string]balance, error) {
-	rows, err := s.conn.Query(ctx, buildOpeningQuery(companyIDs, accounts, p))
+	rows, err := s.conn.Query(ctx, buildOpeningQuery(companyIDs, accounts, p, s.useStaging))
 	if err != nil {
 		return nil, err
 	}

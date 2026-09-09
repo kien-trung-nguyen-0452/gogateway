@@ -55,7 +55,7 @@ WITH base AS (
    {{CFD1}} AS custom_field_detail1, {{CFD2}} AS custom_field_detail2,
    {{CFD3}} AS custom_field_detail3, {{CFD4}} AS custom_field_detail4,
    {{CFD5}} AS custom_field_detail5
-FROM eb_dwh.fact_gl_entry_line AS f
+FROM {{GL_SOURCE}}
 WHERE f.company_id IN CAST([{{COMPANY_IDS}}] AS Array(UUID))
   AND f.posted_date >= toDate('{{FROM_DATE}}')
   AND f.posted_date <= toDate('{{TO_DATE}}')

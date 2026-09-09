@@ -41,7 +41,7 @@ SELECT
     -- SoTonQD: luôn quy đổi
     sum(coalesce(f.debit_amount, 0))                AS debit_qd,
     sum(coalesce(f.credit_amount, 0))               AS credit_qd
-FROM eb_dwh.fact_gl_entry_line AS f
+FROM {{GL_SOURCE}}
 WHERE f.company_id IN CAST([{{COMPANY_IDS}}] AS Array(UUID))
   AND f.posted_date < toDate('{{FROM_DATE}}')
   AND (f.type_ledger = {{TYPE_LEDGER}} OR f.type_ledger = 2)

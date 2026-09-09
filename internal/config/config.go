@@ -25,6 +25,11 @@ type Config struct {
 	// gia tri nao khac "staging") van la fact - an toan, khong doi hanh vi
 	// hien tai.
 	SoChiTietTaiKhoanUseStaging bool
+
+	// SoKeToanChiTietQuyTienMatUseStaging: cung co che nhu tren, ap dung cho
+	// so ke toan chi tiet quy tien mat. Bat bang bien moi truong
+	// SO_KE_TOAN_CHI_TIET_QUY_TIEN_MAT_DATA_SOURCE=staging.
+	SoKeToanChiTietQuyTienMatUseStaging bool
 }
 
 func Load() (Config, error) {
@@ -39,6 +44,9 @@ func Load() (Config, error) {
 
 		SoChiTietTaiKhoanUseStaging: strings.EqualFold(
 			getEnv("SO_CHI_TIET_TAI_KHOAN_DATA_SOURCE", "fact"), "staging"),
+
+		SoKeToanChiTietQuyTienMatUseStaging: strings.EqualFold(
+			getEnv("SO_KE_TOAN_CHI_TIET_QUY_TIEN_MAT_DATA_SOURCE", "fact"), "staging"),
 	}
 
 	if cfg.CHPassword == "" {

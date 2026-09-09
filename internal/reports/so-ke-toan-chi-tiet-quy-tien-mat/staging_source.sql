@@ -1,15 +1,20 @@
 -- Nguồn thay thế cho eb_dwh.fact_gl_entry_line khi pipeline fact bị lỗi tạm
--- thời (bật bằng SO_CHI_TIET_TAI_KHOAN_DATA_SOURCE=staging, xem config.go).
+-- thời (bật bằng SO_KE_TOAN_CHI_TIET_QUY_TIEN_MAT_DATA_SOURCE=staging, xem
+-- config.go).
 --
 -- fact_gl_entry_line vốn được DWH denormalize sẵn từ hai bảng header/detail.
--- Subquery này JOIN lại đúng cặp khóa mà Proc_SO_CHI_TIET_CAC_TAI_KHOAN gốc
--- dùng để nối GeneralLedger (GL) với GeneralLedgerDetail (GLD):
+-- Subquery này JOIN lại đúng cặp khóa mà Proc_SO_KE_TOAN_CHI_TIET_QUY_TIEN_MAT
+-- gốc dùng để nối GeneralLedger (GL) với GeneralLedgerDetail (GLD):
 --
 --	GL.DetailID = GLD.DetailID AND GL.ReferenceID = GLD.ReferenceID
 --
 -- rồi đặt lại tên/kiểu cột cho khớp CHÍNH XÁC với fact_gl_entry_line, để mọi
 -- placeholder trong query.sql/query_opening.sql (và toàn bộ logic build ở
 -- service.go) dùng chung nguyên vẹn, không cần biết đang đọc fact hay staging.
+--
+-- Cùng một derived table với internal/reports/so-chi-tiet-cac-tai-khoan —
+-- xem ghi chú đầy đủ (đo đạc, quyết định đẩy filter) ở bản đó. Sao chép thay
+-- vì dùng chung để hai báo cáo không phụ thuộc chéo lẫn nhau.
 --
 -- FINAL trên cả hai bảng vì đều là ReplacingMergeTree(__source_ts_ms).
 -- __deleted thay cho is_deleted (fact); is_deleted synth = 0 vì dòng đã bị

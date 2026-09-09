@@ -61,7 +61,10 @@ func main() {
 	mux := api.NewRouter(tichLuyHandler, soChiTietHandler)
 
 	//cashLedger
-	quyService := quy.NewService(conn)
+	// useStaging: xem config.SoKeToanChiTietQuyTienMatUseStaging - bat tam
+	// thoi bang SO_KE_TOAN_CHI_TIET_QUY_TIEN_MAT_DATA_SOURCE=staging khi
+	// pipeline fact loi, giong so-chi-tiet-cac-tai-khoan.
+	quyService := quy.NewService(conn, cfg.SoKeToanChiTietQuyTienMatUseStaging)
 	mux.Handle("/api/so-ke-toan-chi-tiet-quy-tien-mat", quy.NewHandler(quyService))
 
 	// api.NewRouter chua nhan handler moi. Dang ky truc tiep o day de khong
