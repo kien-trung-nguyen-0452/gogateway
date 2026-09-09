@@ -357,9 +357,15 @@ func (w *walker) finish() error {
 		}
 	}
 
-	// Tài khoản CHỈ có SDDK mà không phát sinh trong kỳ không xuất hiện trong
-	// luồng SQL nên phải quét bù. Bản Java làm được tự nhiên vì lặp trên
-	// allAccounts; bản stream phải xử lý riêng.
+	// Tài khoản CHỈ có SDDK mà không phát sinh trong kỳ KHÔNG hiển thị trên
+	// màn hình (yêu cầu nghiệp vụ — tài khoản không hoạt động trong kỳ thì
+	// không cần hiện dòng SDDK/SDCK gây rối màn). Vẫn cộng vào Tổng cộng để
+	// số liệu tổng phản ánh đúng toàn bộ số dư thật của các tài khoản đã
+	// chọn — chỉ ẩn dòng hiển thị, không đổi số liệu tổng.
+	//
+	// LƯU Ý: vì vậy Tổng cộng có thể KHÔNG khớp phép cộng tay các dòng đang
+	// hiển thị trên màn (do có tài khoản ẩn góp vào tổng) — cố ý, đã xác
+	// nhận với nghiệp vụ.
 	for _, acc := range w.accounts {
 		if w.seen[acc] {
 			continue
@@ -369,17 +375,15 @@ func (w *walker) finish() error {
 			continue
 		}
 		w.seen[acc] = true
+		// Không phát dòng SDDK/SDCK ra màn (yêu cầu nghiệp vụ ở trên), nhưng
+		// vẫn đánh dấu anyAccount=true — có tiền thật góp vào Tổng cộng nên
+		// dòng Tổng cộng vẫn phải xuất hiện, kể cả khi TOÀN BỘ tài khoản
+		// được chọn đều không phát sinh (không thì màn hình trống trơn dù
+		// có số dư thật).
 		w.anyAccount = true
 
-		if err := w.onRow(w.summaryRow(acc, OrderTypeOpening, "Số dư đầu kỳ",
-			b.net(), b.netOrig())); err != nil {
-			return err
-		}
 		sdck := w.summaryRow(acc, OrderTypeClosing, "Số dư cuối kỳ", b.net(), b.netOrig())
 		w.accumulateClosing(sdck)
-		if err := w.onRow(sdck); err != nil {
-			return err
-		}
 	}
 
 	return w.emitGrandTotal()
