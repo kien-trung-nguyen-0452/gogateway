@@ -56,6 +56,14 @@
         gl.TypeID                 AS type_id,
         gl.TypeLedger             AS type_ledger,
         toDate(gl.PostedDate)     AS posted_date,
+        -- voucher_date = GL.Date (ngày chứng từ), KHÁC posted_date (ngày hạch
+        -- toán). Báo cáo quỹ hiển thị cả hai cột, và voucher_date nằm trong
+        -- ORDER BY (giữa posted_date và ca_type) nên thiếu nó là sai thứ tự
+        -- dòng → SoTon luỹ kế từng dòng sai.
+        --
+        -- so-chi-tiet-cac-tai-khoan không cần cột này nên bản staging của nó
+        -- không có — đừng copy thiếu sang đây.
+        toDate(gl.Date)           AS voucher_date,
         gl.NoFBook                AS no_fbook,
         gl.NoMBook                AS no_mbook,
         gl.InvoiceNo              AS invoice_no,

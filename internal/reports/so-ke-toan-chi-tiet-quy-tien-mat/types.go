@@ -79,10 +79,11 @@ type Row struct {
 	AccountCorresponding string `json:"accountCorresponding"`
 	Note                 string `json:"note"`
 
-	// ── TIỀN TỆ ─────────────────────────────────────────────────────────────
-	// PhatSinhNo/Co: cột người dùng thấy, đã chọn theo typeShowCurrency
-	//   (0 = quy đổi → debit_amount, 1 = nguyên tệ → debit_amount_original)
-	// PhatSinhNoQD/CoQD: luôn là bản quy đổi, dùng cho dòng tổng
+	// ── TIỀN TỆ — HAI CẶP CỘT CỐ ĐỊNH ───────────────────────────────────────
+	// Frontend render bốn cột cùng lúc, bind cố định, KHÔNG theo
+	// typeShowCurrency:
+	//     PhatSinhNo   / PhatSinhCo    → "Nợ NT" / "Có NT" → *_amount_original
+	//     PhatSinhNoQD / PhatSinhCoQD  → "Nợ"    / "Có"    → *_amount
 	PhatSinhNo   JSONDecimal `json:"phatSinhNo"`
 	PhatSinhCo   JSONDecimal `json:"phatSinhCo"`
 	PhatSinhNoQD JSONDecimal `json:"phatSinhNoQD"`

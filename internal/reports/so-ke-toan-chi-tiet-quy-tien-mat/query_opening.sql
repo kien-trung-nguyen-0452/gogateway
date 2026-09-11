@@ -1,44 +1,55 @@
 -- =============================================================================
--- TỒN ĐẦU KỲ — tổng phát sinh TRƯỚC from_date
+-- TỒN ĐẦU KỲ — cộng dồn GL trước from_date
 -- =============================================================================
--- ── VÌ SAO KHỚP CHÍNH XÁC MÃ, KHÔNG CỘNG DỒN THEO CÂY ───────────────────────
--- Proc gốc (dòng 1045–1095) dựng cây đệ quy cho TỪNG tài khoản rồi cộng cả
--- nhánh. Nhưng danh sách tài khoản truyền vào proc ĐÃ ĐƯỢC MỞ RỘNG từ trước
--- bởi DynamicReportQuyServiceImpl (getListChildAccount), nên mỗi phần tử là
--- một tài khoản lá và orderedTree(lá) chỉ là chính nó — rollup thành no-op.
+-- Nguồn tham chiếu: Proc_SO_KE_TOAN_CHI_TIET_QUY_TIEN_MAT dòng 458-519
 --
--- Ở bản DWH, việc mở rộng do Service.expandAccounts() làm qua
--- bridge_account_hierarchy. Nếu file này CŨNG cộng dồn theo cây thì tồn đầu kỳ
--- của tài khoản cha sẽ ĐẾM TRÙNG phần đã có ở các tài khoản con — vì cả cha
--- lẫn con đều nằm trong danh sách sau khi expand.
+-- ── ĐÂY LÀ ĐÚNG, CHO PHƯƠNG PHÁP MẶC ĐỊNH ───────────────────────────────────
+-- Frontend có tuỳ chọn "Phương pháp xác định số dư đầu kỳ" (openingBalanceMethod):
 --
--- Chọn một trong hai, không được cả hai. Đây là khớp chính xác mã.
+--   [1] "Theo số liệu tổng hợp từ chứng từ"  ← MẶC ĐỊNH, file này phục vụ
+--       "Hệ thống xác định số dư đầu kỳ bằng cách tổng hợp toàn bộ chứng từ
+--        phát sinh trước kỳ báo cáo."
+--       → cộng dồn GL, ĐÚNG như file này làm.
 --
--- ── LƯU Ý CHO DEV SAU: PROC TRỘN LOẠI TIỀN ──────────────────────────────────
--- Proc dùng SUM(DebitAmountOriginal) cho SoTon và SUM(DebitAmount) cho SoTonQD
--- BẤT KỂ @typeShowCurrency, trong khi dòng chi tiết lại đổi theo tham số đó:
---     (CASE WHEN @typeShowCurrency = 0 THEN DebitAmount ELSE DebitAmountOriginal END)
+--   [2] "Theo kết chuyển số dư cuối năm trước"
+--       "Hệ thống sử dụng số dư cuối kỳ đã được kết chuyển từ năm trước."
+--       → dùng bảng số dư chốt kỳ. OLTP có PROC RIÊNG cho nhánh này:
+--         Proc_SO_QUY_TIEN_MAT_THEO_KET_CHUYEN_SO_DU_CUOI_NAM
+--         ("thay đổi cách tính số dư đầu kỳ").
+--       → bản DWH tương ứng: query_opening_period.sql (CHƯA nối vào luồng).
 --
--- Với typeShowCurrency = 0, số dư luỹ kế thành "tồn đầu kỳ nguyên tệ + phát
--- sinh quy đổi" — trộn hai loại tiền. Công ty chỉ dùng VND thì hai cột bằng
--- nhau nên không lộ; có ngoại tệ thì sai.
+-- ĐỪNG "sửa" file này thành đọc fact_account_opening_period. Hai phương pháp
+-- là LỰA CHỌN CỦA NGƯỜI DÙNG, không phải cái này đúng cái kia sai. Đổi nguồn
+-- ở đây là làm sai phương pháp [1].
 --
--- File này SAO CHÉP Y HỆT hành vi đó để khớp OLTP. Khi quyết định sửa, đổi
--- debit_oc/credit_oc thành cột theo typeShowCurrency giống query.sql.
+-- Việc còn thiếu: đọc openingBalanceMethod từ request rồi rẽ nhánh sang
+-- query_opening_period.sql khi = 2. Xem ghi chú ở file đó.
 --
--- Kết quả một dòng mỗi tài khoản nên nạp hết vào map an toàn — khác hẳn phần
--- chi tiết vốn phải stream.
+-- ── PHÂN VAI HAI CẶP CỘT TIỀN ───────────────────────────────────────────────
+-- Khớp query.sql và cách frontend bind cột:
+--     debit_oc / credit_oc  → NGUYÊN TỆ → SoTon
+--     debit_qd / credit_qd  → QUY ĐỔI   → SoTonQD
 --
--- Bí danh `f` dùng chung với query.sql để {{CURRENCY_FILTER}} và
--- {{CLUSTER_FILTER}} — do cùng một hàm sinh ra — chèn được vào cả hai file.
+-- Proc dùng đúng phân vai này cho tồn đầu kỳ (dòng 1065-1095): SoTon lấy
+-- DebitAmountOriginal, SoTonQD lấy DebitAmount — KHÔNG theo @typeShowCurrency.
+--
+-- ── KẾT QUẢ CHƯA PHẢI SỐ CUỐI ───────────────────────────────────────────────
+-- GROUP BY account_number nên mỗi tài khoản một dòng, chỉ gồm phần hạch toán
+-- TRỰC TIẾP vào đúng mã đó. Tài khoản CHA ("111") phải gom cả nhánh con — việc
+-- đó do Service.rollupOpeningBalances() làm sau khi đọc file này. ĐỪNG thêm
+-- rollup vào đây, sẽ đếm trùng hai lần.
+--
+-- ── FINAL LÀ BẮT BUỘC ───────────────────────────────────────────────────────
+-- fact_gl_entry_line là ReplacingMergeTree và PARTITION BY tháng, còn câu này
+-- quét MỌI partition từ đầu lịch sử. Không FINAL thì tháng nào còn part chưa
+-- merge là cộng trùng version ở đó, sai số tích luỹ qua hàng chục tháng — và
+-- vì merge bất định, hai lần chạy cùng tham số có thể ra hai con số khác nhau.
 -- =============================================================================
 
 SELECT
     f.account_number                                AS account,
-    -- SoTon: proc dùng nguyên tệ, KHÔNG theo typeShowCurrency (xem ghi chú)
     sum(coalesce(f.debit_amount_original, 0))       AS debit_oc,
     sum(coalesce(f.credit_amount_original, 0))      AS credit_oc,
-    -- SoTonQD: luôn quy đổi
     sum(coalesce(f.debit_amount, 0))                AS debit_qd,
     sum(coalesce(f.credit_amount, 0))               AS credit_qd
 FROM {{GL_SOURCE}}
