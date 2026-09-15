@@ -40,7 +40,7 @@ var openingTemplate string
 var stagingSourceExpr string
 
 // factSourceExpr là giá trị {{GL_SOURCE}} mặc định — đọc thẳng fact table.
-const factSourceExpr = "eb_dwh.fact_gl_entry_line AS f FINAL"
+const factSourceExpr = "eb_dwh.fact_gl_entry_line_v3 AS f FINAL"
 
 var (
 	uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
