@@ -47,7 +47,6 @@ WHERE f.company_id IN CAST([{{COMPANY_IDS}}] AS Array(UUID))
 
 
 ORDER BY
-    indexOf([{{ACCOUNT_ORDER}}], account_number),
     account_number,
     posted_date,
     {{ORDER_TAIL}}

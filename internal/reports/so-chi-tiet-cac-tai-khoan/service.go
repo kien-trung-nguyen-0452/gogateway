@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -123,18 +124,34 @@ func (s *Service) StreamSoChiTiet(
 		typeLedger, noCol = 0, "no_fbook"
 	}
 
-	companyIDs, err := s.resolveCompanyScope(ctx, p)
-	if err != nil {
-		return 0, fmt.Errorf("resolve company scope: %w", err)
+	// resolveCompanyScope và expandAccounts không phụ thuộc lẫn nhau (một cái
+	// cần CompanyIDs/PrimaryCompanyID, cái kia cần PrimaryCompanyID+AccountNumbers
+	// gốc) — chạy song song để không cộng dồn round-trip ClickHouse tuần tự.
+	var (
+		companyIDs          []string
+		accounts            = p.AccountNumbers
+		scopeErr, expandErr error
+	)
+	var wgScope sync.WaitGroup
+	wgScope.Add(2)
+	go func() {
+		defer wgScope.Done()
+		companyIDs, scopeErr = s.resolveCompanyScope(ctx, p)
+	}()
+	go func() {
+		defer wgScope.Done()
+		if p.IsParentNode {
+			accounts, expandErr = s.expandAccounts(ctx, p.PrimaryCompanyID, p.AccountNumbers)
+		}
+	}()
+	wgScope.Wait()
+	if scopeErr != nil {
+		return 0, fmt.Errorf("resolve company scope: %w", scopeErr)
+	}
+	if expandErr != nil {
+		return 0, fmt.Errorf("expand accounts: %w", expandErr)
 	}
 
-	accounts := p.AccountNumbers
-	if p.IsParentNode {
-		accounts, err = s.expandAccounts(ctx, p.PrimaryCompanyID, accounts)
-		if err != nil {
-			return 0, fmt.Errorf("expand accounts: %w", err)
-		}
-	}
 	accounts = cleanAccounts(accounts)
 	if len(accounts) == 0 {
 		return 0, fmt.Errorf("khong con tai khoan nao sau khi loc")
@@ -145,14 +162,30 @@ func (s *Service) StreamSoChiTiet(
 		}
 	}
 
-	// 	kindMap, nameMap, err := s.resolveAccountInfo(ctx, p.PrimaryCompanyID, accounts, accountNameColumn(p.FromDate))
-	kindMap, nameMap, err := s.resolveAccountInfo(ctx, p.PrimaryCompanyID, accounts, accountNameColumn(p.FromDate))
-	if err != nil {
-		return 0, fmt.Errorf("resolve account info: %w", err)
+	// resolveAccountInfo và loadOpeningBalances cũng độc lập với nhau (chỉ
+	// cùng phụ thuộc companyIDs/accounts đã có ở trên) — chạy song song.
+	var (
+		kindMap         map[string]int32
+		nameMap         map[string]string
+		sddkMap         map[string]balance
+		infoErr, balErr error
+	)
+	var wgLookup sync.WaitGroup
+	wgLookup.Add(2)
+	go func() {
+		defer wgLookup.Done()
+		kindMap, nameMap, infoErr = s.resolveAccountInfo(ctx, p.PrimaryCompanyID, accounts, accountNameColumn(p.FromDate))
+	}()
+	go func() {
+		defer wgLookup.Done()
+		sddkMap, balErr = s.loadOpeningBalances(ctx, companyIDs, accounts, p, typeLedger)
+	}()
+	wgLookup.Wait()
+	if infoErr != nil {
+		return 0, fmt.Errorf("resolve account info: %w", infoErr)
 	}
-	sddkMap, err := s.loadOpeningBalances(ctx, companyIDs, accounts, p, typeLedger)
-	if err != nil {
-		return 0, fmt.Errorf("load opening balances: %w", err)
+	if balErr != nil {
+		return 0, fmt.Errorf("load opening balances: %w", balErr)
 	}
 
 	w := &walker{
@@ -229,16 +262,12 @@ type walker struct {
 	hasTC bool
 
 	// ── Tích luỹ cho dòng Tổng cộng ─────────────────────────────────────────
+	// Chỉ cộng dồn phát sinh (grandTC) — dòng Tổng cộng KHÔNG cộng số dư cuối
+	// kỳ (ClosingDebitAmount/ClosingCreditAmount): cộng số dư cuối kỳ của
+	// nhiều tài khoản không cùng bản chất (tài sản, nợ phải trả, doanh thu...)
+	// không có ý nghĩa kế toán, khác với cộng phát sinh Nợ/Có vốn cân đối
+	// theo nguyên tắc ghi sổ kép.
 	grandTC balance
-
-	// Số dư cuối kỳ gộp. KHÔNG cộng từ `net` thuần được: mỗi tài khoản đã quy
-	// đổi net sang cặp cột Nợ/Có theo `kind` của nó (applyKindClosing), nên
-	// phải cộng SAU khi quy đổi. Một tài khoản dư Có -500 và một tài khoản dư
-	// Nợ +500 cộng net lại thành 0, nhưng báo cáo phải hiện Nợ 500 / Có 500.
-	grandClosingDebit      decimal.Decimal
-	grandClosingCredit     decimal.Decimal
-	grandClosingDebitOrig  decimal.Decimal
-	grandClosingCreditOrig decimal.Decimal
 
 	anyAccount bool
 }
@@ -312,7 +341,7 @@ func (w *walker) closeAccount() error {
 			AccountNumber:                acc,
 			AccountCategoryKind:          kind,
 			AccountNameWithAccountNumber: w.name(acc),
-			JournalMemo:                  "Cộng phát sinh",
+			JournalMemo:                  "Cộng",
 			DebitAmount:                  D(w.tc.Debit),
 			CreditAmount:                 D(w.tc.Credit),
 			DebitAmountOriginal:          D(w.tc.DebitOrig),
@@ -335,19 +364,9 @@ func (w *walker) closeAccount() error {
 	closeOrig := w.opening.netOrig().Add(w.tc.DebitOrig).Sub(w.tc.CreditOrig)
 
 	sdck := w.summaryRow(acc, OrderTypeClosing, "Số dư cuối kỳ", closeNet, closeOrig)
-	w.accumulateClosing(sdck)
 	w.anyAccount = true
 
 	return w.onRow(sdck)
-}
-
-// accumulateClosing cộng dồn số dư cuối kỳ ĐÃ QUY ĐỔI theo kind.
-// Gọi SAU summaryRow (tức sau applyKindClosing), không phải trước.
-func (w *walker) accumulateClosing(r Row) {
-	w.grandClosingDebit = w.grandClosingDebit.Add(r.ClosingDebitAmount.Decimal)
-	w.grandClosingCredit = w.grandClosingCredit.Add(r.ClosingCreditAmount.Decimal)
-	w.grandClosingDebitOrig = w.grandClosingDebitOrig.Add(r.ClosingDebitAmountOriginal.Decimal)
-	w.grandClosingCreditOrig = w.grandClosingCreditOrig.Add(r.ClosingCreditAmountOriginal.Decimal)
 }
 
 func (w *walker) finish() error {
@@ -381,9 +400,6 @@ func (w *walker) finish() error {
 		// được chọn đều không phát sinh (không thì màn hình trống trơn dù
 		// có số dư thật).
 		w.anyAccount = true
-
-		sdck := w.summaryRow(acc, OrderTypeClosing, "Số dư cuối kỳ", b.net(), b.netOrig())
-		w.accumulateClosing(sdck)
 	}
 
 	return w.emitGrandTotal()
@@ -410,10 +426,10 @@ func (w *walker) emitGrandTotal() error {
 		DebitAmountOriginal:  D(w.grandTC.DebitOrig),
 		CreditAmountOriginal: D(w.grandTC.CreditOrig),
 
-		ClosingDebitAmount:          D(w.grandClosingDebit),
-		ClosingCreditAmount:         D(w.grandClosingCredit),
-		ClosingDebitAmountOriginal:  D(w.grandClosingDebitOrig),
-		ClosingCreditAmountOriginal: D(w.grandClosingCreditOrig),
+		// Không cộng ClosingDebitAmount/ClosingCreditAmount (số dư cuối kỳ):
+		// đây là số dư của nhiều tài khoản khác bản chất (tài sản, nợ phải
+		// trả, doanh thu...) nên cộng lại không có ý nghĩa kế toán — xem
+		// ghi chú ở field grandTC phía trên.
 
 		ExchangeRate: D(decimal.Zero),
 	})
@@ -554,8 +570,16 @@ func buildDetailQuery(
 		sql = strings.ReplaceAll(sql, "{{ORDER_PRIORITY_EXPR}}", "any(f.order_priority)")
 
 		sql = strings.ReplaceAll(sql, "{{IS_UNREASONABLE_COST_EXPR}}", "f.is_unreasonable_cost")
-		sql = strings.ReplaceAll(sql, "{{AO_CODE_EXPR}}", "f.accounting_object_code")
-		sql = strings.ReplaceAll(sql, "{{AO_NAME_EXPR}}", "f.accounting_object_name")
+		// Tra theo accounting_object_id qua dictionary thay vì đọc thẳng
+		// accounting_object_code/name (snapshot đóng băng lúc ETL, không tự
+		// cập nhật khi đối tượng đổi mã/tên sau đó) — xem staging_source.sql.
+		// Proc gốc cũng GROUP BY GLD.AccountingObjectID (không phải theo
+		// code/name) nên dùng accounting_object_id vừa khớp gốc vừa là khoá
+		// duy nhất cần đưa vào GROUP BY.
+		sql = strings.ReplaceAll(sql, "{{AO_CODE_EXPR}}",
+			"dictGetOrDefault('eb.dict_accounting_object', 'accounting_object_code', f.accounting_object_id, '')")
+		sql = strings.ReplaceAll(sql, "{{AO_NAME_EXPR}}",
+			"dictGetOrDefault('eb.dict_accounting_object', 'accounting_object_name', f.accounting_object_id, '')")
 
 		for i := 1; i <= 5; i++ {
 			// custom_field NẰM TRONG GROUP BY của proc gốc.
@@ -569,7 +593,7 @@ func buildDetailQuery(
 		sql = strings.ReplaceAll(sql, "{{GROUP_BY_CLAUSE}}",
 			"GROUP BY f.reference_id, f.type_id, f.posted_date, f."+noCol+", "+
 				"f.reason, f.account_corresponding, f.invoice_no, f.invoice_date, "+
-				"f.exchange_rate, f.accounting_object_code, f.accounting_object_name, "+
+				"f.exchange_rate, f.accounting_object_id, "+
 				"f.custom_field1, f.custom_field2, f.custom_field3, "+
 				"f.custom_field4, f.custom_field5, "+
 				"f.is_unreasonable_cost, f.account_number")
@@ -618,8 +642,11 @@ func buildDetailQuery(
 
 		sql = strings.ReplaceAll(sql, "{{ORDER_PRIORITY_EXPR}}", "f.order_priority")
 		sql = strings.ReplaceAll(sql, "{{IS_UNREASONABLE_COST_EXPR}}", "f.is_unreasonable_cost")
-		sql = strings.ReplaceAll(sql, "{{AO_CODE_EXPR}}", "f.accounting_object_code")
-		sql = strings.ReplaceAll(sql, "{{AO_NAME_EXPR}}", "f.accounting_object_name")
+		// Xem ghi chú ở nhánh GroupSameItem==1 phía trên.
+		sql = strings.ReplaceAll(sql, "{{AO_CODE_EXPR}}",
+			"dictGetOrDefault('eb.dict_accounting_object', 'accounting_object_code', f.accounting_object_id, '')")
+		sql = strings.ReplaceAll(sql, "{{AO_NAME_EXPR}}",
+			"dictGetOrDefault('eb.dict_accounting_object', 'accounting_object_name', f.accounting_object_id, '')")
 
 		for i := 1; i <= 5; i++ {
 			sql = strings.ReplaceAll(sql, fmt.Sprintf("{{CF%d}}", i),
@@ -668,7 +695,6 @@ func applyCommonPlaceholders(
 	sql = strings.ReplaceAll(sql, "{{TO_DATE}}", p.ToDate)
 	sql = strings.ReplaceAll(sql, "{{TYPE_LEDGER}}", fmt.Sprintf("%d", typeLedger))
 	sql = strings.ReplaceAll(sql, "{{ACCOUNT_NUMBERS}}", accList)
-	sql = strings.ReplaceAll(sql, "{{ACCOUNT_ORDER}}", accList)
 	sql = strings.ReplaceAll(sql, "{{CURRENCY_FILTER}}", currencyFilter(p.CurrencyID))
 	sql = strings.ReplaceAll(sql, "{{CLUSTER_FILTER}}", clusterFilter(p.ClusterID))
 	// query_opening.sql không có hai placeholder này, ReplaceAll bỏ qua nếu
