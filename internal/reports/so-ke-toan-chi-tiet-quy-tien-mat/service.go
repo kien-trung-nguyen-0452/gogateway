@@ -38,6 +38,7 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"log"
 	"regexp"
 	"sort"
 	"strings"
@@ -82,6 +83,11 @@ type Service struct {
 }
 
 func NewService(conn clickhouse.Conn, useStaging bool) *Service {
+	source := "fact (eb_dwh.fact_gl_entry_line)"
+	if useStaging {
+		source = "staging (eb_staging.stg_general_ledger...)"
+	}
+	log.Printf("so-ke-toan-chi-tiet-quy-tien-mat: GL source = %s [bien moi truong SO_KE_TOAN_CHI_TIET_QUY_TIEN_MAT_DATA_SOURCE]", source)
 	return &Service{conn: conn, useStaging: useStaging}
 }
 
