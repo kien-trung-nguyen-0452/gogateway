@@ -204,65 +204,29 @@ func (s *Service) StreamSoChiTiet(
 	}
 
 	sql := buildDetailQuery(companyIDs, accounts, p, typeLedger, noCol, s.useStaging)
-
-	// queryCtx RIENG (khong dung thang ctx) de co the huy CHI viec doc
-	// ClickHouse khi w.push()/onRow loi giua chung, khong huy nham ctx cua
-	// caller.
-	queryCtx, cancelQuery := context.WithCancel(ctx)
-	defer cancelQuery()
-
-	rows, err := s.conn.Query(queryCtx, sql)
+	rows, err := s.conn.Query(ctx, sql)
 	if err != nil {
 		return 0, fmt.Errorf("query error: %w", err)
 	}
 	defer rows.Close()
 
-	// PIPELINE HOA giong StreamSoChiTiet cua so-chi-tiet-vat-lieu-hang-hoa:
-	// 1 goroutine RIENG chi lo doc+scan ClickHouse, day Row THO qua channel
-	// co buffer cho goroutine nay (dang chay w.push() -> onRow -> thuong la
-	// gRPC stream.Send(), co the bi CHAN boi flow-control mang) tieu thu.
-	// walker VAN CHI chay o 1 goroutine duy nhat (goroutine nay, khong doi)
-	// nen running balance/thu tu tai khoan van dam bao dung y het truoc day -
-	// chi tach rieng phan doc tho ClickHouse ra chay song song.
-	rowCh := make(chan Row, rowBufferSize)
-	scanDone := make(chan error, 1)
-
-	go func() {
-		defer close(rowCh)
-		for rows.Next() {
-			// Client ngat giua chung thi dung ngay, khong quet not phan con lai.
-			select {
-			case <-queryCtx.Done():
-				scanDone <- queryCtx.Err()
-				return
-			default:
-			}
-
-			d, err := scanRow(rows)
-			if err != nil {
-				scanDone <- fmt.Errorf("scan error: %w", err)
-				return
-			}
-			rowCh <- d
+	for rows.Next() {
+		// Client ngắt giữa chừng thì dừng ngay, không quét nốt phần còn lại.
+		select {
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		default:
 		}
-		scanDone <- rows.Err()
-	}()
 
-	for d := range rowCh {
+		d, err := scanRow(rows)
+		if err != nil {
+			return 0, fmt.Errorf("scan error: %w", err)
+		}
 		if err := w.push(d); err != nil {
-			// Huy queryCtx de goroutine scan dung fetch giua chung, roi RUT
-			// HET rowCh (blocking) truoc khi return - BAT BUOC phai cho
-			// goroutine scan thuc su ket thuc (dong rowCh) truoc khi defer
-			// rows.Close() o duoi chay, vi Close() dong thoi voi Next() dang
-			// chay o goroutine khac la KHONG AN TOAN.
-			cancelQuery()
-			for range rowCh {
-			}
-			<-scanDone
 			return 0, fmt.Errorf("loi xu ly dong: %w", err)
 		}
 	}
-	if err := <-scanDone; err != nil {
+	if err := rows.Err(); err != nil {
 		return 0, fmt.Errorf("row iteration error: %w", err)
 	}
 
@@ -272,12 +236,6 @@ func (s *Service) StreamSoChiTiet(
 
 	return time.Since(start).Milliseconds(), nil
 }
-
-// rowBufferSize - so dong toi da giu trong channel giua goroutine doc
-// ClickHouse va goroutine chay walker/onRow. GIOI HAN co chu dich (khong phai
-// channel vo han) de giu dung nguyen tac cu: khong bao gio giu qua vai nghin
-// dong trong RAM cung luc, dau la ca report vai tram nghin dong.
-const rowBufferSize = 2000
 
 // =============================================================================
 // WALKER — máy trạng thái một lượt
