@@ -19,7 +19,7 @@ func NewConn(cfg config.Config) (clickhouse.Conn, error) {
 			Password: cfg.CHPassword,
 		},
 		Compression: &clickhouse.Compression{
-			Method: clickhouse.CompressionLZ4, // doi lz4 neu muon it CPU hon, ton bang thong hon
+			Method: clickhouse.CompressionZSTD, // doi lz4 neu muon it CPU hon, ton bang thong hon
 		},
 		DialTimeout:     10 * time.Second,
 		MaxOpenConns:    20,
