@@ -19,14 +19,14 @@ func NewConn(cfg config.Config) (clickhouse.Conn, error) {
 			Password: cfg.CHPassword,
 		},
 		Compression: &clickhouse.Compression{
-			Method: clickhouse.CompressionZSTD, // doi lz4 neu muon it CPU hon, ton bang thong hon
+			Method: clickhouse.CompressionLZ4, // doi lz4 neu muon it CPU hon, ton bang thong hon
 		},
 		DialTimeout:     10 * time.Second,
 		MaxOpenConns:    20,
 		MaxIdleConns:    10,
 		ConnMaxLifetime: 30 * time.Minute,
 		Settings: clickhouse.Settings{
-			"max_block_size": 100000,
+			"max_block_size": 10000,
 		},
 	})
 	if err != nil {
