@@ -2,10 +2,6 @@ package so_chi_tiet_vat_lieu_hang_hoa
 
 import (
 	"fmt"
-	"log"
-
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/encoding/gzip"
 
 	"softdream.vn/go-gateway/internal/so_chi_tiet_vat_lieu_hang_hoa/pb"
 )
@@ -27,20 +23,6 @@ func NewGRPCServer(service *Service) *GRPCServer {
 // stream.Send() NGAY LAP TUC - khong bao gio giu ca lo du lieu trong RAM
 // cung luc. Day la diem mau chot giai quyet treo voi bao cao 500k+ dong.
 func (g *GRPCServer) GetSoChiTietVatLieu(req *pb.SoChiTietVatLieuRequest, stream pb.SoChiTietVatLieuService_GetSoChiTietVatLieuServer) error {
-	// grpc-go mac dinh CHI nen response theo dung encoding request da dung
-	// (co che "mirror" - xem server.go:1697-1707 cua grpc-go). Request nay
-	// chi vai field loc, nen Java hau nhu chac chan khong nen no - neu
-	// khong goi SetSendCompressor o day, response 500k+ dong van se KHONG
-	// duoc nen du da dang ky codec gzip.
-	//
-	// SetSendCompressor LOI neu client khong advertise gzip qua
-	// grpc-accept-encoding (vd Java chua ho tro/chua cau hinh) - KHONG duoc
-	// return loi do ra ngoai, se lam fail toan bo report cho client do. Chi
-	// log lai va tiep tuc gui KHONG nen, dung nhu truoc khi doi.
-	if err := grpc.SetSendCompressor(stream.Context(), gzip.Name); err != nil {
-		log.Printf("so-chi-tiet-vat-lieu-hang-hoa: client khong ho tro gzip, gui khong nen: %v", err)
-	}
-
 	params := QueryParams{
 		CompanyIDs:               req.GetCompanyIds(),
 		PrimaryCompanyID:         req.GetPrimaryCompanyId(),

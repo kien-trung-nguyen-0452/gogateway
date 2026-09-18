@@ -11,9 +11,6 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
-	// Side-effect import: dang ky codec gzip cho gRPC. KHONG tu dong bat nen -
-	// xem grpc-server.go (GetSoChiTietVatLieu) de biet cho goi SetSendCompressor.
-	_ "google.golang.org/grpc/encoding/gzip"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
