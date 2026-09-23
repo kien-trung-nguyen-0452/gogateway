@@ -49,7 +49,10 @@ func main() {
 	tichLuyService := tichluy.NewService(conn)
 	tichLuyHandler := tichluy.NewHandler(tichLuyService)
 
-	soChiTietService := so_chi_tiet_vat_lieu_hang_hoa.NewService(conn)
+	// useCheckpoint: xem config.SoChiTietVatLieuOpeningBalanceUseCheckpoint -
+	// bat bang SO_CHI_TIET_VAT_LIEU_OPENING_BALANCE_SOURCE=checkpoint de doc
+	// so du dau ky tu eb.repository_ledger_checkpoint thay vi full-scan raw.
+	soChiTietService := so_chi_tiet_vat_lieu_hang_hoa.NewService(conn, cfg.SoChiTietVatLieuOpeningBalanceUseCheckpoint)
 	soChiTietHandler := so_chi_tiet_vat_lieu_hang_hoa.NewHandler(soChiTietService)
 
 	// MOI THEM

@@ -34,18 +34,14 @@ WHERE PostedDate <= toDateTime('{{TO_DATE}}')
     )
     ),
 
+    -- Than CTE nay do buildQuery() thay placeholder bang mot trong hai nhanh:
+    -- "raw" (mac dinh, full-scan lich su) hoac "checkpoint" (doc
+    -- eb.repository_ledger_checkpoint + phan le raw), chon qua bien moi truong
+    -- SO_CHI_TIET_VAT_LIEU_OPENING_BALANCE_SOURCE. Xem service.go +
+    -- opening_balance_checkpoint.sql.
     opening_balance AS
     (
-SELECT
-    RepositoryID, MaterialGoodsID,
-    sum(if(UnitID = MainUnitID, ifNull(IWQuantity, 0), ifNull(MainIWQuantity, 0))
-    - if(UnitID = MainUnitID, ifNull(OWQuantity, 0), ifNull(MainOWQuantity, 0))) AS NetQuantity,
-    sum(ifNull(IWAmount, 0) - ifNull(OWAmount, 0)) AS NetAmount,
-    max(Date) AS MaxPreDate,
-    max(MainUnitPrice) AS MaxMainUnitPrice
-FROM ledger_scope
-WHERE PostedDate < toDateTime('{{FROM_DATE}}')
-GROUP BY RepositoryID, MaterialGoodsID
+{{OPENING_BALANCE_BODY}}
     ),
 
     combined_rows AS

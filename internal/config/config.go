@@ -30,6 +30,15 @@ type Config struct {
 	// so ke toan chi tiet quy tien mat. Bat bang bien moi truong
 	// SO_KE_TOAN_CHI_TIET_QUY_TIEN_MAT_DATA_SOURCE=staging.
 	SoKeToanChiTietQuyTienMatUseStaging bool
+
+	// SoChiTietVatLieuOpeningBalanceUseCheckpoint: true = tinh so du dau ky
+	// (opening_balance) cua so chi tiet vat lieu hang hoa qua bang
+	// eb.repository_ledger_checkpoint + phan le raw, thay vi cong don toan bo
+	// lich su PostedDate < FROM_DATE tu eb.repository_ledger (mac dinh). Bat
+	// bang bien moi truong SO_CHI_TIET_VAT_LIEU_OPENING_BALANCE_SOURCE=checkpoint,
+	// khong can deploy lai code. Gia tri mac dinh (khong set, hoac bat ky gia
+	// tri nao khac "checkpoint") van la raw - an toan, khong doi hanh vi hien tai.
+	SoChiTietVatLieuOpeningBalanceUseCheckpoint bool
 }
 
 func Load() (Config, error) {
@@ -47,6 +56,9 @@ func Load() (Config, error) {
 
 		SoKeToanChiTietQuyTienMatUseStaging: strings.EqualFold(
 			getEnv("SO_KE_TOAN_CHI_TIET_QUY_TIEN_MAT_DATA_SOURCE", "fact"), "staging"),
+
+		SoChiTietVatLieuOpeningBalanceUseCheckpoint: strings.EqualFold(
+			getEnv("SO_CHI_TIET_VAT_LIEU_OPENING_BALANCE_SOURCE", "raw"), "checkpoint"),
 	}
 
 	if cfg.CHPassword == "" {
