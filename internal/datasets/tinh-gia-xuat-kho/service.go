@@ -95,24 +95,27 @@ scanRow đọc một dòng kết quả ClickHouse thành Row.
 - isOpeningStock: 	col[0]  Bool — true là tồn đầu kỳ, false là phát sinh trong kỳ.
 - materialGoodsID: 	col[1]  UUID — mã VTHH.
 - repositoryID: 	col[2]  UUID — mã kho.
-- detailID: 		col[3]  UUID — query đã ifNull nên không còn Nullable.
-- referenceID: 		col[4]  UUID — ID chứng từ gốc.
-- typeID: 			col[5]  Int32 — query đã ifNull.
-- postedDate: 		col[6]  DateTime — ngày hạch toán.
+- detailID: 		col[3]  Nullable(UUID) — dòng tồn đầu kỳ để NULL vì không thuộc chứng từ nào.
+- referenceID: 		col[4]  Nullable(UUID) — như trên.
+- typeID: 			col[5]  Nullable(Int32) — như trên.
+- postedDate: 		col[6]  Nullable(DateTime) — như trên.
 - mainIWQuantity: 	col[7]  Decimal128(10) — số lượng nhập theo đơn vị chính.
 - mainOWQuantity: 	col[8]  Decimal128(10) — số lượng xuất theo đơn vị chính.
 - iwAmount: 		col[9]  Decimal128(10) — giá trị nhập.
 - owAmount: 		col[10] Decimal128(10) — giá trị xuất.
+
+Bốn cột Nullable quy về giá trị rỗng để hợp đồng JSON với ebinventory không đổi. Bên đó chỉ đọc
+số lượng và trị giá của dòng tồn đầu kỳ, bốn cột này không được dùng tới.
 */
 func scanRow(rows driverRows) (Row, error) {
 	var (
 		isOpeningStock  bool
 		materialGoodsID uuid.UUID
 		repositoryID    uuid.UUID
-		detailID        uuid.UUID
-		referenceID     uuid.UUID
-		typeID          int32
-		postedDate      time.Time
+		detailID        *uuid.UUID
+		referenceID     *uuid.UUID
+		typeID          *int32
+		postedDate      *time.Time
 		mainIWQuantity  decimal.Decimal
 		mainOWQuantity  decimal.Decimal
 		iwAmount        decimal.Decimal
@@ -132,10 +135,10 @@ func scanRow(rows driverRows) (Row, error) {
 		IsOpeningStock:  isOpeningStock,
 		MaterialGoodsID: materialGoodsID.String(),
 		RepositoryID:    repositoryID.String(),
-		DetailID:        detailID.String(),
-		ReferenceID:     referenceID.String(),
-		TypeID:          typeID,
-		PostedDate:      postedDate,
+		DetailID:        uuidOrEmpty(detailID),
+		ReferenceID:     uuidOrEmpty(referenceID),
+		TypeID:          int32OrZero(typeID),
+		PostedDate:      timeOrEpoch(postedDate),
 		MainIWQuantity:  mainIWQuantity,
 		MainOWQuantity:  mainOWQuantity,
 		IWAmount:        iwAmount,
@@ -185,4 +188,29 @@ func quoteJoin(ids []string) string {
 		quoted[i] = fmt.Sprintf("'%s'", id)
 	}
 	return strings.Join(quoted, ", ")
+}
+
+// uuidOrEmpty đổi UUID có thể NULL thành chuỗi, NULL trả về UUID toàn số 0.
+func uuidOrEmpty(id *uuid.UUID) string {
+	if id == nil {
+		return uuid.Nil.String()
+	}
+	return id.String()
+}
+
+// int32OrZero đổi Int32 có thể NULL thành số, NULL trả về 0.
+func int32OrZero(value *int32) int32 {
+	if value == nil {
+		return 0
+	}
+	return *value
+}
+
+// timeOrEpoch đổi DateTime có thể NULL thành thời điểm, NULL trả về mốc 1970-01-01 giống
+// giá trị dòng tồn đầu kỳ vẫn dùng trước đây, để hợp đồng JSON với ebinventory không đổi.
+func timeOrEpoch(value *time.Time) time.Time {
+	if value == nil {
+		return time.Unix(0, 0).UTC()
+	}
+	return *value
 }
