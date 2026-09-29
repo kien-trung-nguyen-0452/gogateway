@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 )
 
 // Config chua toan bo cau hinh service, doc tu bien moi truong.
@@ -16,6 +17,28 @@ type Config struct {
 	CHDatabase string
 	HTTPPort   string
 	GRPCPort   string
+
+	// SoChiTietTaiKhoanUseStaging: true = doc tu bang eb_staging thay vi
+	// eb_dwh.fact_gl_entry_line. Bat tam thoi bang bien moi truong
+	// SO_CHI_TIET_TAI_KHOAN_DATA_SOURCE=staging khi pipeline fact bi loi,
+	// khong can deploy lai code. Gia tri mac dinh (khong set, hoac bat ky
+	// gia tri nao khac "staging") van la fact - an toan, khong doi hanh vi
+	// hien tai.
+	SoChiTietTaiKhoanUseStaging bool
+
+	// SoKeToanChiTietQuyTienMatUseStaging: cung co che nhu tren, ap dung cho
+	// so ke toan chi tiet quy tien mat. Bat bang bien moi truong
+	// SO_KE_TOAN_CHI_TIET_QUY_TIEN_MAT_DATA_SOURCE=staging.
+	SoKeToanChiTietQuyTienMatUseStaging bool
+
+	// SoChiTietVatLieuOpeningBalanceUseCheckpoint: true = tinh so du dau ky
+	// (opening_balance) cua so chi tiet vat lieu hang hoa qua bang
+	// eb.repository_ledger_checkpoint + phan le raw, thay vi cong don toan bo
+	// lich su PostedDate < FROM_DATE tu eb.repository_ledger (mac dinh). Bat
+	// bang bien moi truong SO_CHI_TIET_VAT_LIEU_OPENING_BALANCE_SOURCE=checkpoint,
+	// khong can deploy lai code. Gia tri mac dinh (khong set, hoac bat ky gia
+	// tri nao khac "checkpoint") van la raw - an toan, khong doi hanh vi hien tai.
+	SoChiTietVatLieuOpeningBalanceUseCheckpoint bool
 }
 
 func Load() (Config, error) {
@@ -27,6 +50,15 @@ func Load() (Config, error) {
 		CHDatabase: getEnv("CH_DATABASE", "eb"),
 		HTTPPort:   getEnv("HTTP_PORT", "8089"),
 		GRPCPort:   getEnv("GRPC_PORT", "9090"),
+
+		SoChiTietTaiKhoanUseStaging: strings.EqualFold(
+			getEnv("SO_CHI_TIET_TAI_KHOAN_DATA_SOURCE", "fact"), "staging"),
+
+		SoKeToanChiTietQuyTienMatUseStaging: strings.EqualFold(
+			getEnv("SO_KE_TOAN_CHI_TIET_QUY_TIEN_MAT_DATA_SOURCE", "fact"), "staging"),
+
+		SoChiTietVatLieuOpeningBalanceUseCheckpoint: strings.EqualFold(
+			getEnv("SO_CHI_TIET_VAT_LIEU_OPENING_BALANCE_SOURCE", "raw"), "checkpoint"),
 	}
 
 	if cfg.CHPassword == "" {

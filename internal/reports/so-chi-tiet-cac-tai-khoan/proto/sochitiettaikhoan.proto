@@ -1,0 +1,114 @@
+syntax = "proto3";
+
+package sochitiettaikhoan;
+
+option go_package = "softdream.vn/go-gateway/internal/so_chi_tiet_tai_khoan/pb";
+option java_multiple_files = true;
+option java_package = "vn.softdreams.ebweb.grpc.sochitiettaikhoan";
+option java_outer_classname = "SoChiTietTaiKhoanProto";
+
+// =============================================================================
+// SERVICE
+// =============================================================================
+
+service SoChiTietTaiKhoanService {
+  // Server-streaming: moi dong duoc gui ngay khi scan xong, khong gom ca lo.
+  // Giong so_chi_tiet_vat_lieu - day la diem mau chot tranh treo voi bao cao
+  // vai tram nghin dong.
+  rpc GetSoChiTietTaiKhoan(SoChiTietTaiKhoanRequest)
+      returns (stream SoChiTietTaiKhoanRow);
+}
+
+// =============================================================================
+// REQUEST
+// =============================================================================
+
+message SoChiTietTaiKhoanRequest {
+  // UUID DA SWAP theo quy uoc SQL Server <-> ClickHouse.
+  // Viec swap do Java lam (SqlServerUuidSwap); Go chi nhan UUID chuan.
+  repeated string company_ids       = 1;
+  string          primary_company_id = 2;
+
+  repeated string account_numbers = 3;
+
+  string from_date = 4;  // YYYY-MM-DD
+  string to_date   = 5;  // YYYY-MM-DD
+
+  // "TH" = tat ca loai tien; nguoc lai loc theo ma.
+  string currency_id = 6;
+
+  // 1 = so tai chinh (type_ledger 0, cot no_fbook)
+  // 0 = so quan tri  (type_ledger 1, cot no_mbook)
+  int32 is_financial_book = 7;
+
+  // 1 = gop ca don vi phu thuoc (bridge_org_scope)
+  int32 is_dependent = 8;
+
+  // 1 = cong gop but toan cung (account, reference, date, no, corr)
+  int32 group_same_item = 9;
+
+  // true = expand xuong toan bo tai khoan con qua bridge_account_hierarchy
+  bool is_parent_node = 10;
+
+  // Multi-cluster. Rong = khong loc.
+  string cluster_id = 11;
+}
+
+// =============================================================================
+// RESPONSE
+// =============================================================================
+
+// Mot dong cua so chi tiet. Anh xa 1-1 voi SoChiTietTaiKhoanDTO ben Java.
+message SoChiTietTaiKhoanRow {
+  // 0 = So du dau ky | 1 = Chi tiet | 2 = Cong phat sinh | 3 = So du cuoi ky
+  int32 order_type   = 1;
+  int32 order_number = 2;
+  bool  bold         = 3;
+
+  string account_number        = 4;
+  int32  account_category_kind = 5;  // 0 du No | 1 du Co | 2 luong tinh
+
+  string key_id       = 6;
+  string reference_id = 7;   // UUID, rong neu khong co
+  int32  type_id      = 8;
+
+  string posted_date  = 9;   // RFC3339, rong neu null
+  string invoice_date = 10;
+  string invoice_no   = 11;
+  string no           = 12;  // no_fbook hoac no_mbook tuy loai so
+
+  string reason                = 13;
+  string journal_memo          = 14;
+  string account_corresponding = 15;
+
+  // ── TIEN TE ──────────────────────────────────────────────────────────────
+  // Dung STRING, KHONG dung double.
+  // Nguon la Decimal(25,10) - 25 chu so vuot xa do chinh xac cua double
+  // (~15-17 chu so). Qua double se sai phan le, ma voi so ke toan thi lech
+  // mot dong cung la loi. Java parse lai bang new BigDecimal(s).
+  string debit_amount            = 16;
+  string credit_amount           = 17;
+  string debit_amount_original   = 18;
+  string credit_amount_original  = 19;
+
+  string closing_debit_amount            = 20;
+  string closing_credit_amount           = 21;
+  string closing_debit_amount_original   = 22;
+  string closing_credit_amount_original  = 23;
+
+  string exchange_rate = 24;
+
+  int32  order_priority       = 25;
+  string is_unreasonable_cost = 26;
+
+  string accounting_object_code = 27;
+  string accounting_object_name = 28;
+
+  // Luon dung 5 phan tu, index 0..4.
+  repeated string custom_field        = 29;
+  repeated string custom_field_detail = 30;
+
+  // Chuoi "154 - Chi phi SXKD do dang". Frontend dung cho dong tieu de nhom
+  // khi nguoi dung chon xem "Tat ca" tai khoan.
+  string account_name_with_account_number = 31;
+}
