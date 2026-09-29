@@ -17,6 +17,7 @@ import (
 	"softdream.vn/go-gateway/internal/api"
 	"softdream.vn/go-gateway/internal/chclient"
 	"softdream.vn/go-gateway/internal/config"
+	"softdream.vn/go-gateway/internal/datasets/tinh-gia-xuat-kho"
 	"softdream.vn/go-gateway/internal/reports/so-chi-tiet-vat-lieu-hang-hoa"
 	quy "softdream.vn/go-gateway/internal/reports/so-ke-toan-chi-tiet-quy-tien-mat"
 	"softdream.vn/go-gateway/internal/reports/tichluy"
@@ -61,7 +62,11 @@ func main() {
 	taiKhoanService := tk.NewService(conn, cfg.SoChiTietTaiKhoanUseStaging)
 	taiKhoanHandler := tk.NewHandler(taiKhoanService)
 
-	mux := api.NewRouter(tichLuyHandler, soChiTietHandler)
+	// Du lieu tho phuc vu Tinh Gia Xuat Kho
+	tinhGiaService := tinh_gia_xuat_kho.NewService(conn)
+	tinhGiaHandler := tinh_gia_xuat_kho.NewHandler(tinhGiaService)
+
+	mux := api.NewRouter(tichLuyHandler, soChiTietHandler, tinhGiaHandler)
 
 	//cashLedger
 	// useStaging: xem config.SoKeToanChiTietQuyTienMatUseStaging - bat tam
