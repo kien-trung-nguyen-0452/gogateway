@@ -26,6 +26,13 @@ type Config struct {
 	// hien tai.
 	SoChiTietTaiKhoanUseStaging bool
 
+	// SoChiTietTaiKhoanStagingCompanyIDs: danh sach CompanyID (UUID, ngan cach
+	// boi dau phay) chay duong staging cho rieng cac cong ty nay, con lai van
+	// la fact. Dung de cho vai cong ty lam end tester truoc khi bat dai tra.
+	// Bien moi truong SO_CHI_TIET_TAI_KHOAN_STAGING_COMPANY_IDS. Bi bo qua neu
+	// SoChiTietTaiKhoanUseStaging da bat (toan bo da la staging).
+	SoChiTietTaiKhoanStagingCompanyIDs []string
+
 	// SoKeToanChiTietQuyTienMatUseStaging: cung co che nhu tren, ap dung cho
 	// so ke toan chi tiet quy tien mat. Bat bang bien moi truong
 	// SO_KE_TOAN_CHI_TIET_QUY_TIEN_MAT_DATA_SOURCE=staging.
@@ -54,6 +61,9 @@ func Load() (Config, error) {
 		SoChiTietTaiKhoanUseStaging: strings.EqualFold(
 			getEnv("SO_CHI_TIET_TAI_KHOAN_DATA_SOURCE", "fact"), "staging"),
 
+		SoChiTietTaiKhoanStagingCompanyIDs: splitCSV(
+			os.Getenv("SO_CHI_TIET_TAI_KHOAN_STAGING_COMPANY_IDS")),
+
 		SoKeToanChiTietQuyTienMatUseStaging: strings.EqualFold(
 			getEnv("SO_KE_TOAN_CHI_TIET_QUY_TIEN_MAT_DATA_SOURCE", "fact"), "staging"),
 
@@ -67,6 +77,16 @@ func Load() (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func splitCSV(v string) []string {
+	var out []string
+	for _, part := range strings.Split(v, ",") {
+		if part = strings.ToLower(strings.TrimSpace(part)); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 func getEnv(key, fallback string) string {

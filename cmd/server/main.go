@@ -63,7 +63,7 @@ func main() {
 	// MOI THEM
 	// useStaging: xem config.SoChiTietTaiKhoanUseStaging - bat tam thoi bang
 	// SO_CHI_TIET_TAI_KHOAN_DATA_SOURCE=staging khi pipeline fact bi loi.
-	taiKhoanService := tk.NewService(conn, cfg.SoChiTietTaiKhoanUseStaging)
+	taiKhoanService := tk.NewService(conn, cfg.SoChiTietTaiKhoanUseStaging, cfg.SoChiTietTaiKhoanStagingCompanyIDs)
 	taiKhoanHandler := tk.NewHandler(taiKhoanService)
 
 	// Du lieu tho phuc vu Tinh Gia Xuat Kho

@@ -65,15 +65,36 @@ type Service struct {
 	// eb_dwh.fact_gl_entry_line - xem staging_source.sql va
 	// config.SoChiTietTaiKhoanUseStaging. Dung tam thoi khi pipeline fact loi.
 	useStaging bool
+
+	// stagingCompanies: CompanyID (chu thuong) chay duong staging du useStaging
+	// = false - nhom end tester, xem config.SoChiTietTaiKhoanStagingCompanyIDs.
+	stagingCompanies map[string]struct{}
 }
 
-func NewService(conn clickhouse.Conn, useStaging bool) *Service {
+func NewService(conn clickhouse.Conn, useStaging bool, stagingCompanyIDs []string) *Service {
 	source := "fact (eb_dwh.fact_gl_entry_line)"
 	if useStaging {
 		source = "staging (eb_staging.stg_general_ledger...)"
 	}
 	log.Printf("so-chi-tiet-cac-tai-khoan: GL source = %s [bien moi truong SO_CHI_TIET_TAI_KHOAN_DATA_SOURCE]", source)
-	return &Service{conn: conn, useStaging: useStaging}
+	staging := make(map[string]struct{}, len(stagingCompanyIDs))
+	for _, id := range stagingCompanyIDs {
+		staging[strings.ToLower(id)] = struct{}{}
+	}
+	if len(staging) > 0 {
+		log.Printf("so-chi-tiet-cac-tai-khoan: %d cong ty chay staging [SO_CHI_TIET_TAI_KHOAN_STAGING_COMPANY_IDS]", len(staging))
+	}
+	return &Service{conn: conn, useStaging: useStaging, stagingCompanies: staging}
+}
+
+// stagingFor: request nay doc tu staging khi bat toan cuc, hoac khi cong ty
+// chinh nam trong danh sach tester.
+func (s *Service) stagingFor(p QueryParams) bool {
+	if s.useStaging {
+		return true
+	}
+	_, ok := s.stagingCompanies[strings.ToLower(p.PrimaryCompanyID)]
+	return ok
 }
 
 type driverRows interface {
@@ -203,8 +224,9 @@ func (s *Service) StreamSoChiTiet(
 		seen:     make(map[string]bool, len(accounts)),
 	}
 
-	sql := buildDetailQuery(companyIDs, accounts, p, typeLedger, noCol, s.useStaging)
-	rows, err := s.conn.Query(ctx, sql)
+	staging := s.stagingFor(p)
+	sql := buildDetailQuery(companyIDs, accounts, p, typeLedger, noCol, staging)
+	rows, err := s.conn.Query(queryCtx(ctx, staging), sql)
 	if err != nil {
 		return 0, fmt.Errorf("query error: %w", err)
 	}
@@ -838,10 +860,30 @@ func (s *Service) resolveAccountInfo(
 	return kinds, names, rows.Err()
 }
 
+// queryCtx gắn setting riêng cho nhánh staging: JOIN header×detail lúc query
+// có thể dựng hash table rất lớn trên prod (hàng trăm triệu dòng), từng OOM
+// (MEMORY_LIMIT_EXCEEDED) khi test. grace_hash chia JOIN thành bucket và spill
+// ra đĩa khi vượt max_bytes_in_join thay vì vỡ bộ nhớ; chỉ đổi cách thực thi,
+// KHÔNG đổi kết quả. Nhánh fact không JOIN nên giữ nguyên.
+func queryCtx(ctx context.Context, staging bool) context.Context {
+	if !staging {
+		return ctx
+	}
+	return clickhouse.Context(ctx, clickhouse.WithSettings(clickhouse.Settings{
+		"join_algorithm":    "grace_hash",
+		"max_bytes_in_join": stagingMaxBytesInJoin,
+	}))
+}
+
+// stagingMaxBytesInJoin: ngưỡng RAM (byte) cho hash table JOIN trước khi
+// grace_hash chia bucket/spill. 1GB để chừa chỗ cho các query song song.
+const stagingMaxBytesInJoin = 1 << 30
+
 func (s *Service) loadOpeningBalances(
 	ctx context.Context, companyIDs, accounts []string, p QueryParams, typeLedger int,
 ) (map[string]balance, error) {
-	rows, err := s.conn.Query(ctx, buildOpeningQuery(companyIDs, accounts, p, typeLedger, s.useStaging))
+	staging := s.stagingFor(p)
+	rows, err := s.conn.Query(queryCtx(ctx, staging), buildOpeningQuery(companyIDs, accounts, p, typeLedger, staging))
 	if err != nil {
 		return nil, err
 	}
