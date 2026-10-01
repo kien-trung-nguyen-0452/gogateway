@@ -49,6 +49,7 @@ jobs:
           CH_PASSWORD=${{ secrets.CH_PASSWORD }}
           CH_DATABASE=${{ secrets.CH_DATABASE }}
           HTTP_PORT=8089
+          SO_CHI_TIET_TAI_KHOAN_DATA_SOURCE=${{ secrets.SO_CHI_TIET_TAI_KHOAN_DATA_SOURCE }}
           EOF
           sudo chmod 600 /etc/gogateway/gogateway.env
           sudo chown root:root /etc/gogateway/gogateway.env

@@ -1,0 +1,175 @@
+syntax = "proto3";
+
+package soketoanchitietquytienmat;
+
+// Thu muc dung gach duoi nen ten package Go suy ra duoc, khong can phan ";pb".
+// Khop kieu dat ten cua so_chi_tiet_vat_lieu_hang_hoa.
+option go_package = "softdream.vn/go-gateway/internal/so_ke_toan_chi_tiet_quy_tien_mat/pb";
+
+option java_multiple_files  = true;
+option java_package         = "vn.softdreams.ebweb.grpc.soketoanchitietquytienmat";
+option java_outer_classname = "SoKeToanChiTietQuyTienMatProto";
+
+// =============================================================================
+// SERVICE
+// =============================================================================
+
+service SoKeToanChiTietQuyTienMatService {
+  // Server-streaming: moi dong duoc gui ngay khi dung xong, khong gom ca lo.
+  //
+  // Bao cao nay co cot SoTon LUY KE nen thu tu dong la mot phan cua tinh dung
+  // dan, khong phai chuyen trinh bay. Client PHAI giu nguyen thu tu nhan duoc.
+  rpc GetSoKeToanChiTietQuyTienMat(SoKeToanChiTietQuyTienMatRequest)
+      returns (stream SoKeToanChiTietQuyTienMatRow);
+}
+
+// =============================================================================
+// REQUEST
+// =============================================================================
+
+message SoKeToanChiTietQuyTienMatRequest {
+  // UUID DA SWAP theo quy uoc SQL Server <-> ClickHouse.
+  // Viec swap do Java lam (SqlServerUuidSwap); Go chi nhan UUID chuan.
+  repeated string company_ids        = 1;
+  string          primary_company_id = 2;
+
+  // Cac tai khoan quy tien mat nguoi dung chon (vd 1111, 1112...).
+  //
+  // Java PHAI gop cac nguon trong RequestReport truoc khi gui — Go nhan danh
+  // sach da chuan hoa.
+  //
+  // LUU Y: so hieu tai khoan CO THE chua khoang trang va gach ngang.
+  // "154 - TT" la mot tai khoan THAT, ton tai song song voi "154".
+  repeated string account_numbers = 3;
+
+  string from_date = 4;  // YYYY-MM-DD
+  string to_date   = 5;  // YYYY-MM-DD
+
+  // "TH" = tat ca loai tien; nguoc lai loc theo ma.
+  string currency_id = 6;
+
+  // 1 = so tai chinh -> proc @TypeLedger = 0, cot NoFBook
+  // 0 = so quan tri  -> proc @TypeLedger = 1, cot NoMBook
+  //
+  // CHU Y CHIEU DAO: proc nhan thang @TypeLedger nen 0 moi la so tai chinh.
+  // Go phai doi: typeLedger = (is_financial_book == 1) ? 0 : 1
+  // Chon nham chieu la toan bo bao cao lay sai so ma khong co loi nao bao ra.
+  int32 is_financial_book = 7;
+
+  // 1 = gop ca don vi phu thuoc (bridge_org_scope)
+  int32 is_dependent = 8;
+
+  // 1 = cong gop but toan cung chung tu.
+  //
+  // KHAC voi So chi tiet cac tai khoan: proc nay chi GROUP BY BON cot
+  //     GL.ReferenceID, Account, AccountCorresponding, AccountingObjectID
+  // va bo han moi cot chieu. Dung ap quy uoc 19 cot cua bao cao kia sang day.
+  int32 group_same_item = 9;
+
+  // 0 = hien thi so QUY DOI      (debit_amount)
+  // 1 = hien thi so NGUYEN TE    (debit_amount_original)
+  //
+  // Chi anh huong cot phat_sinh_no / phat_sinh_co / so_ton.
+  // Cac cot *_qd LUON la ban quy doi.
+  int32 type_show_currency = 10;
+
+  // Multi-cluster. Rong = khong loc.
+  string cluster_id = 11;
+}
+
+// =============================================================================
+// RESPONSE
+// =============================================================================
+
+// Mot dong cua so ke toan chi tiet quy tien mat.
+// Anh xa 1-1 voi bang #Result cua Proc_SO_KE_TOAN_CHI_TIET_QUY_TIEN_MAT.
+message SoKeToanChiTietQuyTienMatRow {
+  // CHI CO BA GIA TRI:
+  //   0 = Ton dau ky
+  //   1 = Phat sinh trong ky
+  //   2 = Cong nhom (dong cuoi moi tai khoan)
+  //
+  // KHONG co "So du cuoi ky" nhu So chi tiet cac tai khoan. Proc khong sinh
+  // dong do. So du cuoi ky chinh la cot so_ton cua dong position_order = 2.
+  int32 position_order = 1;
+
+  // 0 = Phieu thu, 1 = Phieu chi.
+  //
+  // Mot but toan vua co No vua co Co sinh HAI dong: mot thu, mot chi. Chung
+  // cung reference_id nhung khac ca_type.
+  int32 ca_type = 2;
+
+  string reference_id = 3;   // UUID, rong neu la dong tong
+  int32  type_id      = 4;
+
+  string date        = 5;   // ngay chung tu (GL.Date), YYYY-MM-DD
+  string posted_date = 6;   // ngay hach toan (GL.PostedDate)
+
+  // Cung mot so hieu chung tu, dat vao cot nao tuy ca_type.
+  string receipt_ref_no = 7;   // so phieu thu, chi co khi ca_type = 0
+  string payment_ref_no = 8;   // so phieu chi, chi co khi ca_type = 1
+
+  string journal_memo = 9;
+  string reason       = 10;
+  string note         = 11;
+
+  string account               = 12;  // TK quy tien mat
+  string account_corresponding = 13;  // TK doi ung
+
+  int32 order_priority = 14;
+
+  // ── TIEN TE ──────────────────────────────────────────────────────────────
+  // Dung STRING, KHONG dung double.
+  //
+  // Nguon la Decimal(25,10) — 25 chu so vuot xa do chinh xac cua double
+  // (~15-17 chu so). Voi so ke toan thi lech mot dong cung la loi.
+  // Java parse lai bang new BigDecimal(s).
+  //
+  // Cot khong hau to: theo type_show_currency (quy doi hoac nguyen te)
+  // Cot _qd: LUON la ban quy doi
+  string phat_sinh_no = 15;
+  string phat_sinh_co = 16;
+  string so_ton       = 17;   // ton quy LUY KE
+
+  string phat_sinh_no_qd = 18;
+  string phat_sinh_co_qd = 19;
+  string so_ton_qd       = 20;
+
+  string exchange_rate = 21;
+
+  // ── CHIEU ────────────────────────────────────────────────────────────────
+  string accounting_object_code = 22;
+  string accounting_object_name = 23;
+
+  // SAU NHOM DUOI DAY HIEN TRA VE CHUOI RONG.
+  //
+  // fact_gl_entry_line chua co cac cot khoa ngoai tuong ung
+  // (ExpenseItemID, BudgetItemID, DepartmentID, CostSetID, ContractID,
+  // StatisticsCodeID). Chung nam o dbo.GeneralLedger nhung chua chay qua
+  // Debezium/Flink.
+  //
+  // KHONG anh huong so lieu: nhanh gop cua proc bo han chung
+  //     group by GL.ReferenceID, Account, AccountCorresponding, AccountingObjectID
+  // nen chung chi de hien thi o che do chi tiet.
+  //
+  // Giu field o day de hop dong API on dinh — khi fact duoc bo sung thi chi
+  // can dien, khong phai doi proto hay sua frontend.
+  string expense_item_code      = 24;
+  string expense_item_name      = 25;
+  string budget_item_code       = 26;
+  string budget_item_name       = 27;
+  string organization_unit_code = 28;  // tu GL.DepartmentID
+  string organization_unit_name = 29;
+  string cost_set_code          = 30;
+  string cost_set_name          = 31;
+  string contract_no            = 32;
+  string statistics_code_code   = 33;
+  string statistics_code_name   = 34;
+
+  // Luon dung 5 phan tu, index 0..4.
+  repeated string custom_field        = 35;
+  repeated string custom_field_detail = 36;
+
+  // true khi position_order != 1. Frontend dung de bold va an so tien theo cot.
+  bool is_sum_col = 37;
+}

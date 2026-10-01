@@ -21,8 +21,10 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"log"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -35,6 +37,12 @@ var queryTemplate string
 
 //go:embed query_opening.sql
 var openingTemplate string
+
+//go:embed staging_source.sql
+var stagingSourceExpr string
+
+// factSourceExpr là giá trị {{GL_SOURCE}} mặc định — đọc thẳng fact table.
+const factSourceExpr = "eb_dwh.fact_gl_entry_line AS f FINAL"
 
 var (
 	uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
@@ -52,9 +60,21 @@ var (
 
 type Service struct {
 	conn clickhouse.Conn
+
+	// useStaging: true = doc tu eb_staging.stg_general_ledger(_detail) thay vi
+	// eb_dwh.fact_gl_entry_line - xem staging_source.sql va
+	// config.SoChiTietTaiKhoanUseStaging. Dung tam thoi khi pipeline fact loi.
+	useStaging bool
 }
 
-func NewService(conn clickhouse.Conn) *Service { return &Service{conn: conn} }
+func NewService(conn clickhouse.Conn, useStaging bool) *Service {
+	source := "fact (eb_dwh.fact_gl_entry_line)"
+	if useStaging {
+		source = "staging (eb_staging.stg_general_ledger...)"
+	}
+	log.Printf("so-chi-tiet-cac-tai-khoan: GL source = %s [bien moi truong SO_CHI_TIET_TAI_KHOAN_DATA_SOURCE]", source)
+	return &Service{conn: conn, useStaging: useStaging}
+}
 
 type driverRows interface {
 	Scan(dest ...any) error
@@ -110,18 +130,34 @@ func (s *Service) StreamSoChiTiet(
 		typeLedger, noCol = 0, "no_fbook"
 	}
 
-	companyIDs, err := s.resolveCompanyScope(ctx, p)
-	if err != nil {
-		return 0, fmt.Errorf("resolve company scope: %w", err)
+	// resolveCompanyScope và expandAccounts không phụ thuộc lẫn nhau (một cái
+	// cần CompanyIDs/PrimaryCompanyID, cái kia cần PrimaryCompanyID+AccountNumbers
+	// gốc) — chạy song song để không cộng dồn round-trip ClickHouse tuần tự.
+	var (
+		companyIDs          []string
+		accounts            = p.AccountNumbers
+		scopeErr, expandErr error
+	)
+	var wgScope sync.WaitGroup
+	wgScope.Add(2)
+	go func() {
+		defer wgScope.Done()
+		companyIDs, scopeErr = s.resolveCompanyScope(ctx, p)
+	}()
+	go func() {
+		defer wgScope.Done()
+		if p.IsParentNode {
+			accounts, expandErr = s.expandAccounts(ctx, p.PrimaryCompanyID, p.AccountNumbers)
+		}
+	}()
+	wgScope.Wait()
+	if scopeErr != nil {
+		return 0, fmt.Errorf("resolve company scope: %w", scopeErr)
+	}
+	if expandErr != nil {
+		return 0, fmt.Errorf("expand accounts: %w", expandErr)
 	}
 
-	accounts := p.AccountNumbers
-	if p.IsParentNode {
-		accounts, err = s.expandAccounts(ctx, p.PrimaryCompanyID, accounts)
-		if err != nil {
-			return 0, fmt.Errorf("expand accounts: %w", err)
-		}
-	}
 	accounts = cleanAccounts(accounts)
 	if len(accounts) == 0 {
 		return 0, fmt.Errorf("khong con tai khoan nao sau khi loc")
@@ -132,13 +168,30 @@ func (s *Service) StreamSoChiTiet(
 		}
 	}
 
-	kindMap, nameMap, err := s.resolveAccountInfo(ctx, p.PrimaryCompanyID, accounts)
-	if err != nil {
-		return 0, fmt.Errorf("resolve account info: %w", err)
+	// resolveAccountInfo và loadOpeningBalances cũng độc lập với nhau (chỉ
+	// cùng phụ thuộc companyIDs/accounts đã có ở trên) — chạy song song.
+	var (
+		kindMap         map[string]int32
+		nameMap         map[string]string
+		sddkMap         map[string]balance
+		infoErr, balErr error
+	)
+	var wgLookup sync.WaitGroup
+	wgLookup.Add(2)
+	go func() {
+		defer wgLookup.Done()
+		kindMap, nameMap, infoErr = s.resolveAccountInfo(ctx, p.PrimaryCompanyID, accounts, accountNameColumn(p.FromDate))
+	}()
+	go func() {
+		defer wgLookup.Done()
+		sddkMap, balErr = s.loadOpeningBalances(ctx, companyIDs, accounts, p, typeLedger)
+	}()
+	wgLookup.Wait()
+	if infoErr != nil {
+		return 0, fmt.Errorf("resolve account info: %w", infoErr)
 	}
-	sddkMap, err := s.loadOpeningBalances(ctx, companyIDs, accounts, p, typeLedger)
-	if err != nil {
-		return 0, fmt.Errorf("load opening balances: %w", err)
+	if balErr != nil {
+		return 0, fmt.Errorf("load opening balances: %w", balErr)
 	}
 
 	w := &walker{
@@ -150,7 +203,7 @@ func (s *Service) StreamSoChiTiet(
 		seen:     make(map[string]bool, len(accounts)),
 	}
 
-	sql := buildDetailQuery(companyIDs, accounts, p, typeLedger, noCol)
+	sql := buildDetailQuery(companyIDs, accounts, p, typeLedger, noCol, s.useStaging)
 	rows, err := s.conn.Query(ctx, sql)
 	if err != nil {
 		return 0, fmt.Errorf("query error: %w", err)
@@ -198,20 +251,29 @@ type walker struct {
 
 	current string
 	opening balance
-	tc      balance
-	hasTC   bool
+
+	// running là số dư luỹ kế TÍNH ĐẾN VÀ BAO GỒM dòng chi tiết hiện tại —
+	// khởi tạo bằng opening khi mở tài khoản, cộng dồn sau mỗi dòng. Khớp
+	// hành vi bản Java cũ (biến closeAmountOC/closeAmount trong vòng lặp):
+	// dòng chi tiết đầu tiên = opening + (credit-debit) của chính nó, dòng
+	// sau = running của dòng trước + (credit-debit) của nó.
+	//
+	// TRƯỚC ĐÂY bản Go dùng thẳng `opening` (không đổi) cho applyKindClosing
+	// của MỌI dòng chi tiết trong tài khoản → mọi dòng hiện cùng một số dư,
+	// sai với báo cáo gốc (mỗi dòng phải hiện số dư SAU khi phát sinh dòng
+	// đó).
+	running balance
+
+	tc    balance
+	hasTC bool
 
 	// ── Tích luỹ cho dòng Tổng cộng ─────────────────────────────────────────
+	// Chỉ cộng dồn phát sinh (grandTC) — dòng Tổng cộng KHÔNG cộng số dư cuối
+	// kỳ (ClosingDebitAmount/ClosingCreditAmount): cộng số dư cuối kỳ của
+	// nhiều tài khoản không cùng bản chất (tài sản, nợ phải trả, doanh thu...)
+	// không có ý nghĩa kế toán, khác với cộng phát sinh Nợ/Có vốn cân đối
+	// theo nguyên tắc ghi sổ kép.
 	grandTC balance
-
-	// Số dư cuối kỳ gộp. KHÔNG cộng từ `net` thuần được: mỗi tài khoản đã quy
-	// đổi net sang cặp cột Nợ/Có theo `kind` của nó (applyKindClosing), nên
-	// phải cộng SAU khi quy đổi. Một tài khoản dư Có -500 và một tài khoản dư
-	// Nợ +500 cộng net lại thành 0, nhưng báo cáo phải hiện Nợ 500 / Có 500.
-	grandClosingDebit      decimal.Decimal
-	grandClosingCredit     decimal.Decimal
-	grandClosingDebitOrig  decimal.Decimal
-	grandClosingCreditOrig decimal.Decimal
 
 	anyAccount bool
 }
@@ -233,7 +295,16 @@ func (w *walker) push(d Row) error {
 	d.OrderNumber = OrderTypeDetail
 	d.AccountCategoryKind = kind
 	d.AccountNameWithAccountNumber = w.name(w.current)
-	applyKindClosing(&d, w.opening.net(), w.opening.netOrig(), kind)
+
+	// Cộng dòng hiện tại vào số dư luỹ kế TRƯỚC khi tính Closing cho chính
+	// dòng này — running phải phản ánh số dư SAU dòng này.
+	w.running.add(balance{
+		Debit:      d.DebitAmount.Decimal,
+		Credit:     d.CreditAmount.Decimal,
+		DebitOrig:  d.DebitAmountOriginal.Decimal,
+		CreditOrig: d.CreditAmountOriginal.Decimal,
+	})
+	applyKindClosing(&d, w.running.net(), w.running.netOrig(), kind)
 	if err := w.onRow(d); err != nil {
 		return err
 	}
@@ -254,6 +325,7 @@ func (w *walker) openAccount(acc string) error {
 	w.tc = balance{}
 	w.hasTC = false
 	w.opening = w.sddkMap[acc] // zero value nếu không có
+	w.running = w.opening      // luỹ kế bắt đầu từ số dư đầu kỳ
 
 	// Dòng SDDK chỉ phát khi khác 0 — giữ đúng hành vi bản Java.
 	if w.opening.net().IsZero() && w.opening.netOrig().IsZero() {
@@ -275,7 +347,7 @@ func (w *walker) closeAccount() error {
 			AccountNumber:                acc,
 			AccountCategoryKind:          kind,
 			AccountNameWithAccountNumber: w.name(acc),
-			JournalMemo:                  "Cộng phát sinh",
+			JournalMemo:                  "Cộng",
 			DebitAmount:                  D(w.tc.Debit),
 			CreditAmount:                 D(w.tc.Credit),
 			DebitAmountOriginal:          D(w.tc.DebitOrig),
@@ -298,19 +370,9 @@ func (w *walker) closeAccount() error {
 	closeOrig := w.opening.netOrig().Add(w.tc.DebitOrig).Sub(w.tc.CreditOrig)
 
 	sdck := w.summaryRow(acc, OrderTypeClosing, "Số dư cuối kỳ", closeNet, closeOrig)
-	w.accumulateClosing(sdck)
 	w.anyAccount = true
 
 	return w.onRow(sdck)
-}
-
-// accumulateClosing cộng dồn số dư cuối kỳ ĐÃ QUY ĐỔI theo kind.
-// Gọi SAU summaryRow (tức sau applyKindClosing), không phải trước.
-func (w *walker) accumulateClosing(r Row) {
-	w.grandClosingDebit = w.grandClosingDebit.Add(r.ClosingDebitAmount.Decimal)
-	w.grandClosingCredit = w.grandClosingCredit.Add(r.ClosingCreditAmount.Decimal)
-	w.grandClosingDebitOrig = w.grandClosingDebitOrig.Add(r.ClosingDebitAmountOriginal.Decimal)
-	w.grandClosingCreditOrig = w.grandClosingCreditOrig.Add(r.ClosingCreditAmountOriginal.Decimal)
 }
 
 func (w *walker) finish() error {
@@ -320,9 +382,15 @@ func (w *walker) finish() error {
 		}
 	}
 
-	// Tài khoản CHỈ có SDDK mà không phát sinh trong kỳ không xuất hiện trong
-	// luồng SQL nên phải quét bù. Bản Java làm được tự nhiên vì lặp trên
-	// allAccounts; bản stream phải xử lý riêng.
+	// Tài khoản CHỈ có SDDK mà không phát sinh trong kỳ KHÔNG hiển thị trên
+	// màn hình (yêu cầu nghiệp vụ — tài khoản không hoạt động trong kỳ thì
+	// không cần hiện dòng SDDK/SDCK gây rối màn). Vẫn cộng vào Tổng cộng để
+	// số liệu tổng phản ánh đúng toàn bộ số dư thật của các tài khoản đã
+	// chọn — chỉ ẩn dòng hiển thị, không đổi số liệu tổng.
+	//
+	// LƯU Ý: vì vậy Tổng cộng có thể KHÔNG khớp phép cộng tay các dòng đang
+	// hiển thị trên màn (do có tài khoản ẩn góp vào tổng) — cố ý, đã xác
+	// nhận với nghiệp vụ.
 	for _, acc := range w.accounts {
 		if w.seen[acc] {
 			continue
@@ -332,17 +400,12 @@ func (w *walker) finish() error {
 			continue
 		}
 		w.seen[acc] = true
+		// Không phát dòng SDDK/SDCK ra màn (yêu cầu nghiệp vụ ở trên), nhưng
+		// vẫn đánh dấu anyAccount=true — có tiền thật góp vào Tổng cộng nên
+		// dòng Tổng cộng vẫn phải xuất hiện, kể cả khi TOÀN BỘ tài khoản
+		// được chọn đều không phát sinh (không thì màn hình trống trơn dù
+		// có số dư thật).
 		w.anyAccount = true
-
-		if err := w.onRow(w.summaryRow(acc, OrderTypeOpening, "Số dư đầu kỳ",
-			b.net(), b.netOrig())); err != nil {
-			return err
-		}
-		sdck := w.summaryRow(acc, OrderTypeClosing, "Số dư cuối kỳ", b.net(), b.netOrig())
-		w.accumulateClosing(sdck)
-		if err := w.onRow(sdck); err != nil {
-			return err
-		}
 	}
 
 	return w.emitGrandTotal()
@@ -369,10 +432,10 @@ func (w *walker) emitGrandTotal() error {
 		DebitAmountOriginal:  D(w.grandTC.DebitOrig),
 		CreditAmountOriginal: D(w.grandTC.CreditOrig),
 
-		ClosingDebitAmount:          D(w.grandClosingDebit),
-		ClosingCreditAmount:         D(w.grandClosingCredit),
-		ClosingDebitAmountOriginal:  D(w.grandClosingDebitOrig),
-		ClosingCreditAmountOriginal: D(w.grandClosingCreditOrig),
+		// Không cộng ClosingDebitAmount/ClosingCreditAmount (số dư cuối kỳ):
+		// đây là số dư của nhiều tài khoản khác bản chất (tài sản, nợ phải
+		// trả, doanh thu...) nên cộng lại không có ý nghĩa kế toán — xem
+		// ghi chú ở field grandTC phía trên.
 
 		ExchangeRate: D(decimal.Zero),
 	})
@@ -463,6 +526,7 @@ func applyKindClosing(r *Row, net, netOrig decimal.Decimal, kind int32) {
 //     hai về non-nullable bằng coalesce, rồi scan vào giá trị.
 func buildDetailQuery(
 	companyIDs, accounts []string, p QueryParams, typeLedger int, noCol string,
+	useStaging bool,
 ) string {
 	sql := queryTemplate
 
@@ -512,8 +576,16 @@ func buildDetailQuery(
 		sql = strings.ReplaceAll(sql, "{{ORDER_PRIORITY_EXPR}}", "any(f.order_priority)")
 
 		sql = strings.ReplaceAll(sql, "{{IS_UNREASONABLE_COST_EXPR}}", "f.is_unreasonable_cost")
-		sql = strings.ReplaceAll(sql, "{{AO_CODE_EXPR}}", "f.accounting_object_code")
-		sql = strings.ReplaceAll(sql, "{{AO_NAME_EXPR}}", "f.accounting_object_name")
+		// Tra theo accounting_object_id qua dictionary thay vì đọc thẳng
+		// accounting_object_code/name (snapshot đóng băng lúc ETL, không tự
+		// cập nhật khi đối tượng đổi mã/tên sau đó) — xem staging_source.sql.
+		// Proc gốc cũng GROUP BY GLD.AccountingObjectID (không phải theo
+		// code/name) nên dùng accounting_object_id vừa khớp gốc vừa là khoá
+		// duy nhất cần đưa vào GROUP BY.
+		sql = strings.ReplaceAll(sql, "{{AO_CODE_EXPR}}",
+			"dictGetOrDefault('eb.dict_accounting_object', 'accounting_object_code', f.accounting_object_id, '')")
+		sql = strings.ReplaceAll(sql, "{{AO_NAME_EXPR}}",
+			"dictGetOrDefault('eb.dict_accounting_object', 'accounting_object_name', f.accounting_object_id, '')")
 
 		for i := 1; i <= 5; i++ {
 			// custom_field NẰM TRONG GROUP BY của proc gốc.
@@ -527,7 +599,7 @@ func buildDetailQuery(
 		sql = strings.ReplaceAll(sql, "{{GROUP_BY_CLAUSE}}",
 			"GROUP BY f.reference_id, f.type_id, f.posted_date, f."+noCol+", "+
 				"f.reason, f.account_corresponding, f.invoice_no, f.invoice_date, "+
-				"f.exchange_rate, f.accounting_object_code, f.accounting_object_name, "+
+				"f.exchange_rate, f.accounting_object_id, "+
 				"f.custom_field1, f.custom_field2, f.custom_field3, "+
 				"f.custom_field4, f.custom_field5, "+
 				"f.is_unreasonable_cost, f.account_number")
@@ -545,7 +617,13 @@ func buildDetailQuery(
 
 		// ORDER BY dùng ALIAS, không phải f.* — sau GROUP BY thì cột gốc không
 		// tham chiếu trực tiếp được.
-		sql = strings.ReplaceAll(sql, "{{ORDER_TAIL}}", "key_id")
+		//
+		// Thu tu yeu cau: AccountNumber, OrderType, PostedDate, Date, OrderNumber, No.
+		// OrderType/OrderNumber/Date la field walker tu sinh (khong co that
+		// trong fact table) nen khong the ORDER BY o day; account_number va
+		// posted_date da nam trong ORDER BY ngoai (buildDetailQuery), tail chi
+		// con "no" la cot that con lai trong chuoi yeu cau.
+		sql = strings.ReplaceAll(sql, "{{ORDER_TAIL}}", "no")
 
 	} else {
 		// ── CHẾ ĐỘ CHI TIẾT ─────────────────────────────────────────────────
@@ -570,8 +648,11 @@ func buildDetailQuery(
 
 		sql = strings.ReplaceAll(sql, "{{ORDER_PRIORITY_EXPR}}", "f.order_priority")
 		sql = strings.ReplaceAll(sql, "{{IS_UNREASONABLE_COST_EXPR}}", "f.is_unreasonable_cost")
-		sql = strings.ReplaceAll(sql, "{{AO_CODE_EXPR}}", "f.accounting_object_code")
-		sql = strings.ReplaceAll(sql, "{{AO_NAME_EXPR}}", "f.accounting_object_name")
+		// Xem ghi chú ở nhánh GroupSameItem==1 phía trên.
+		sql = strings.ReplaceAll(sql, "{{AO_CODE_EXPR}}",
+			"dictGetOrDefault('eb.dict_accounting_object', 'accounting_object_code', f.accounting_object_id, '')")
+		sql = strings.ReplaceAll(sql, "{{AO_NAME_EXPR}}",
+			"dictGetOrDefault('eb.dict_accounting_object', 'accounting_object_name', f.accounting_object_id, '')")
 
 		for i := 1; i <= 5; i++ {
 			sql = strings.ReplaceAll(sql, fmt.Sprintf("{{CF%d}}", i),
@@ -590,29 +671,36 @@ func buildDetailQuery(
 		sql = strings.ReplaceAll(sql, "{{HAVING_CLAUSE}}", "")
 
 		sql = strings.ReplaceAll(sql, "{{GROUP_BY_CLAUSE}}", "")
-		sql = strings.ReplaceAll(sql, "{{ORDER_TAIL}}", "order_priority, key_id")
+		// Xem ghi chu o nhanh GroupSameItem==1 ben tren ve thu tu yeu cau.
+		sql = strings.ReplaceAll(sql, "{{ORDER_TAIL}}", "no")
 	}
 
-	return applyCommonPlaceholders(sql, companyIDs, accounts, p, typeLedger)
+	return applyCommonPlaceholders(sql, companyIDs, accounts, p, typeLedger, useStaging)
 }
 
 func buildOpeningQuery(
-	companyIDs, accounts []string, p QueryParams, typeLedger int,
+	companyIDs, accounts []string, p QueryParams, typeLedger int, useStaging bool,
 ) string {
-	return applyCommonPlaceholders(openingTemplate, companyIDs, accounts, p, typeLedger)
+	return applyCommonPlaceholders(openingTemplate, companyIDs, accounts, p, typeLedger, useStaging)
 }
 
 func applyCommonPlaceholders(
 	sql string, companyIDs, accounts []string, p QueryParams, typeLedger int,
+	useStaging bool,
 ) string {
 	accList := quoteJoin(accounts)
+
+	glSource := factSourceExpr
+	if useStaging {
+		glSource = stagingSourceExpr
+	}
+	sql = strings.ReplaceAll(sql, "{{GL_SOURCE}}", glSource)
 
 	sql = strings.ReplaceAll(sql, "{{COMPANY_IDS}}", quoteJoin(companyIDs))
 	sql = strings.ReplaceAll(sql, "{{FROM_DATE}}", p.FromDate)
 	sql = strings.ReplaceAll(sql, "{{TO_DATE}}", p.ToDate)
 	sql = strings.ReplaceAll(sql, "{{TYPE_LEDGER}}", fmt.Sprintf("%d", typeLedger))
 	sql = strings.ReplaceAll(sql, "{{ACCOUNT_NUMBERS}}", accList)
-	sql = strings.ReplaceAll(sql, "{{ACCOUNT_ORDER}}", accList)
 	sql = strings.ReplaceAll(sql, "{{CURRENCY_FILTER}}", currencyFilter(p.CurrencyID))
 	sql = strings.ReplaceAll(sql, "{{CLUSTER_FILTER}}", clusterFilter(p.ClusterID))
 	// query_opening.sql không có hai placeholder này, ReplaceAll bỏ qua nếu
@@ -690,18 +778,36 @@ func (s *Service) expandAccounts(
 	return out, nil
 }
 
+// accountNameColumn chọn cột tên tài khoản trong dim_account theo năm của kỳ
+// báo cáo (FromDate).
+//
+// Chuẩn mực/thông tư mới hiệu lực từ năm 2026 đổi tên một số tài khoản. DWH
+// sẽ bổ sung cột account_name_99 để giữ SONG SONG cả tên cũ (account_name_vi,
+// vẫn dùng cho dữ liệu trước 2026) lẫn tên mới, không ghi đè.
+//
+// CẢNH BÁO: cột account_name_99 CHƯA TỒN TẠI trên ClickHouse tại thời điểm
+// viết đoạn này (2026-08-23) — báo cáo có FromDate từ năm 2026 trở đi sẽ lỗi
+// "column not found" cho đến khi DWH bổ sung cột. Cần phối hợp thời điểm
+// deploy với team DWH, không tự ý bật sớm.
+func accountNameColumn(fromDate string) string {
+	if t, err := time.Parse("2006-01-02", fromDate); err == nil && t.Year() >= 2026 {
+		return "account_name_99"
+	}
+	return "account_name_vi"
+}
+
 // resolveAccountInfo lấy CẢ kind lẫn tên trong MỘT truy vấn.
 //
-// dim_account có account_name_vi và account_name_en; báo cáo dùng bản tiếng
-// Việt.
+// nameCol: xem accountNameColumn — account_name_vi (mặc định) hoặc
+// account_name_99 (kỳ báo cáo từ 2026).
 func (s *Service) resolveAccountInfo(
-	ctx context.Context, companyID string, accounts []string,
+	ctx context.Context, companyID string, accounts []string, nameCol string,
 ) (map[string]int32, map[string]string, error) {
 	sql := fmt.Sprintf(`
-		SELECT account_number, account_group_kind, account_name_vi
+		SELECT account_number, account_group_kind, %s
 		FROM eb_dwh.dim_account
 		WHERE company_id = '%s' AND account_number IN (%s) AND is_current = 1`,
-		companyID, quoteJoin(accounts))
+		nameCol, companyID, quoteJoin(accounts))
 
 	rows, err := s.conn.Query(ctx, sql)
 	if err != nil {
@@ -735,7 +841,7 @@ func (s *Service) resolveAccountInfo(
 func (s *Service) loadOpeningBalances(
 	ctx context.Context, companyIDs, accounts []string, p QueryParams, typeLedger int,
 ) (map[string]balance, error) {
-	rows, err := s.conn.Query(ctx, buildOpeningQuery(companyIDs, accounts, p, typeLedger))
+	rows, err := s.conn.Query(ctx, buildOpeningQuery(companyIDs, accounts, p, typeLedger, s.useStaging))
 	if err != nil {
 		return nil, err
 	}
@@ -969,11 +1075,32 @@ func quoteJoin(ids []string) string {
 	return strings.Join(q, ", ")
 }
 
+// sqlServerUUIDSwap đảo byte 3 nhóm đầu của UUID (time_low 4B, time_mid 2B,
+// time_hi_and_version 2B) — bù cho cách SQL Server UNIQUEIDENTIFIER lưu byte
+// khác chuẩn RFC4122. clock_seq + node (8 byte cuối) giữ nguyên.
+//
+// company_id đã được PHÍA JAVA swap trước khi gửi vào gogateway (xem
+// SqlServerUuidSwap.swap/Common.revertUUID bên Java, và comment "đã swap
+// UUID phía Java" ở QueryParams.CompanyIDs) nên WHERE khớp đúng cột UUID
+// trong ClickHouse. Nhưng reference_id ĐỌC RA từ ClickHouse chưa được ai
+// swap lại — nếu trả thẳng ra, UUID bị lệch byte so với ReferenceID thật
+// trong OLTP, khiến reflink ở frontend trỏ sai chứng từ. Áp swap này (hàm tự
+// nghịch đảo, gọi 2 lần ra lại UUID gốc) ngay tại nguồn để mọi consumer nhận
+// đúng UUID mà không cần biết đặc thù SQL Server.
+func sqlServerUUIDSwap(u uuid.UUID) uuid.UUID {
+	var out uuid.UUID
+	out[0], out[1], out[2], out[3] = u[3], u[2], u[1], u[0]
+	out[4], out[5] = u[5], u[4]
+	out[6], out[7] = u[7], u[6]
+	copy(out[8:], u[8:])
+	return out
+}
+
 func uuidOrEmpty(u *uuid.UUID) string {
 	if u == nil {
 		return ""
 	}
-	return u.String()
+	return sqlServerUUIDSwap(*u).String()
 }
 
 func strOrEmpty(s *string) string {

@@ -16,12 +16,14 @@ import (
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
-
 	"softdream.vn/go-gateway/internal/api"
 	"softdream.vn/go-gateway/internal/chclient"
 	"softdream.vn/go-gateway/internal/config"
+	"softdream.vn/go-gateway/internal/datasets/tinh-gia-xuat-kho"
 	"softdream.vn/go-gateway/internal/reports/so-chi-tiet-vat-lieu-hang-hoa"
+	quy "softdream.vn/go-gateway/internal/reports/so-ke-toan-chi-tiet-quy-tien-mat"
 	"softdream.vn/go-gateway/internal/reports/tichluy"
+	quypb "softdream.vn/go-gateway/internal/so_ke_toan_chi_tiet_quy_tien_mat/pb"
 
 	// Hai package sinh tu proto DEU co ten "pb" nen phai dat alias, neu khong
 	// trinh bien dich bao trung ten.
@@ -59,10 +61,23 @@ func main() {
 	soChiTietHandler := so_chi_tiet_vat_lieu_hang_hoa.NewHandler(soChiTietService)
 
 	// MOI THEM
-	taiKhoanService := tk.NewService(conn)
+	// useStaging: xem config.SoChiTietTaiKhoanUseStaging - bat tam thoi bang
+	// SO_CHI_TIET_TAI_KHOAN_DATA_SOURCE=staging khi pipeline fact bi loi.
+	taiKhoanService := tk.NewService(conn, cfg.SoChiTietTaiKhoanUseStaging)
 	taiKhoanHandler := tk.NewHandler(taiKhoanService)
 
-	mux := api.NewRouter(tichLuyHandler, soChiTietHandler)
+	// Du lieu tho phuc vu Tinh Gia Xuat Kho
+	tinhGiaService := tinh_gia_xuat_kho.NewService(conn)
+	tinhGiaHandler := tinh_gia_xuat_kho.NewHandler(tinhGiaService)
+
+	mux := api.NewRouter(tichLuyHandler, soChiTietHandler, tinhGiaHandler)
+
+	//cashLedger
+	// useStaging: xem config.SoKeToanChiTietQuyTienMatUseStaging - bat tam
+	// thoi bang SO_KE_TOAN_CHI_TIET_QUY_TIEN_MAT_DATA_SOURCE=staging khi
+	// pipeline fact loi, giong so-chi-tiet-cac-tai-khoan.
+	quyService := quy.NewService(conn, cfg.SoKeToanChiTietQuyTienMatUseStaging)
+	mux.Handle("/api/so-ke-toan-chi-tiet-quy-tien-mat", quy.NewHandler(quyService))
 
 	// api.NewRouter chua nhan handler moi. Dang ky truc tiep o day de khong
 	// phai sua chu ky ham dung chung; khi nao on dinh thi don vao NewRouter.
@@ -136,6 +151,9 @@ func main() {
 	// MOI THEM - thieu dong nay se bao:
 	//   UNIMPLEMENTED: unknown service sochitiettaikhoan.SoChiTietTaiKhoanService
 	tkpb.RegisterSoChiTietTaiKhoanServiceServer(grpcServer, tk.NewGRPCServer(taiKhoanService))
+
+	//CashLedger
+	quypb.RegisterSoKeToanChiTietQuyTienMatServiceServer(grpcServer, quy.NewGRPCServer(quyService))
 
 	// ---- Health check -----------------------------------------------------
 	// Cho phep client va script deploy biet service san sang chua, thay vi
