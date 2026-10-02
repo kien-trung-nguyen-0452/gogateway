@@ -224,4 +224,4 @@ ORDER BY
     RefDate ASC NULLS FIRST, InRefOrder,
     /*replaceRegexpAll(RefNo, '[^a-zA-Z0-9]', ''),*/
     RefNo, OrderPriority, ReferenceID, DetailID
-    SETTINGS enable_optimize_predicate_expression = 0;
+    SETTINGS enable_optimize_predicate_expression = 1;
