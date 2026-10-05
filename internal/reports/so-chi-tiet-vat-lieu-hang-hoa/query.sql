@@ -105,14 +105,14 @@ SELECT
     *,
     sum(NetQuantity) OVER (
     PARTITION BY RepositoryID, MaterialGoodsID
-    ORDER BY RefDate ASC NULLS FIRST, InRefOrder,
+    ORDER BY PostedDate,
     replaceRegexpAll(RefNo, '[^a-zA-Z0-9]', ''),
     RefNo, OrderPriority, ReferenceID, DetailID
     ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
     ) AS ClosingQuantity,
     sum(NetAmount) OVER (
     PARTITION BY RepositoryID, MaterialGoodsID
-    ORDER BY RefDate ASC NULLS FIRST, InRefOrder,
+    ORDER BY PostedDate,
     replaceRegexpAll(RefNo, '[^a-zA-Z0-9]', ''),
     RefNo, OrderPriority, ReferenceID, DetailID
     ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
@@ -216,7 +216,7 @@ FROM unit_converted
     {{ACCOUNT_HAS_DATA_FILTER}}
 ORDER BY
     RepositoryCode, MaterialGoodsCode,
-    RefDate ASC NULLS FIRST, InRefOrder,
-    replaceRegexpAll(RefNo, '[^a-zA-Z0-9]', ''),
+    PostedDate,
+    /*replaceRegexpAll(RefNo, '[^a-zA-Z0-9]', ''),*/
     RefNo, OrderPriority, ReferenceID, DetailID
     SETTINGS enable_optimize_predicate_expression = 0;

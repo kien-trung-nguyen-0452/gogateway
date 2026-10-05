@@ -61,6 +61,7 @@ func Load() (Config, error) {
 			getEnv("SO_CHI_TIET_VAT_LIEU_OPENING_BALANCE_SOURCE", "raw"), "checkpoint"),
 	}
 
+	//
 	if cfg.CHPassword == "" {
 		return cfg, fmt.Errorf("bien moi truong CH_PASSWORD chua duoc set")
 	}

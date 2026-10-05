@@ -26,7 +26,7 @@ func NewConn(cfg config.Config) (clickhouse.Conn, error) {
 		MaxIdleConns:    10,
 		ConnMaxLifetime: 30 * time.Minute,
 		Settings: clickhouse.Settings{
-			"max_block_size": 100000,
+			"max_block_size": 10000,
 		},
 	})
 	if err != nil {
