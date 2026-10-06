@@ -33,7 +33,32 @@ WITH ledger_scope AS
 SELECT *
 FROM
 (
-    -- IsOpeningStock = true: Tồn đầu kỳ, gộp hết phát sinh trước FROM_DATE
+    -- IsOpeningStock = true (1/2): Luỹ kế tồn tới hết tháng liền trước tháng FROM_DATE, đọc thẳng
+    -- từ bảng checkpoint thay vì cộng dồn lại toàn bộ lịch sử.
+    SELECT
+        true                                                                AS IsOpeningStock,
+        rlc.material_goods_id                                               AS MaterialGoodsID,
+        rlc.repository_id                                                   AS RepositoryID,
+        NULL                                                                AS DetailID,
+        NULL                                                                AS ReferenceID,
+        NULL                                                                AS TypeID,
+        NULL                                                                AS PostedDate,
+        CAST(argMax(rlc.cumulative_qty, rlc.month) AS Decimal128(10))       AS MainIWQuantity,
+        CAST(0 AS Decimal128(10))                                           AS MainOWQuantity,
+        CAST(argMax(rlc.cumulative_amount, rlc.month) AS Decimal128(10))    AS IWAmount,
+        CAST(0 AS Decimal128(10))                                           AS OWAmount
+    FROM eb.repository_ledger_checkpoint AS rlc FINAL
+    WHERE rlc.company_id = toUUID('{{COMPANY_ID}}')
+      AND (rlc.type_ledger = {{TYPE_LEDGER}} OR rlc.type_ledger = 2)
+      AND rlc.month < toYYYYMM(toDateTime('{{FROM_DATE}}'))
+      AND (rlc.repository_id, rlc.material_goods_id) IN
+          (SELECT RepositoryID, MaterialGoodsID FROM ledger_scope)
+    GROUP BY rlc.repository_id, rlc.material_goods_id, rlc.type_ledger
+
+    UNION ALL
+
+    -- IsOpeningStock = true (2/2): Phần lẻ từ đầu tháng FROM_DATE đến FROM_DATE, phần mà checkpoint
+    -- chưa phủ. Cận dưới là hằng số nên ClickHouse bỏ qua được phần dữ liệu cũ hơn.
     SELECT
         true                                                    AS IsOpeningStock,
         MaterialGoodsID                                         AS MaterialGoodsID,
@@ -47,7 +72,8 @@ FROM
         CAST(sum(IWAmt - OWAmt)         AS Decimal128(10))      AS IWAmount,
         CAST(0                          AS Decimal128(10))      AS OWAmount
     FROM ledger_scope
-    WHERE ledger_scope.PostedDate < toDateTime('{{FROM_DATE}}')
+    WHERE ledger_scope.PostedDate >= toDateTime(toStartOfMonth(toDateTime('{{FROM_DATE}}')))
+      AND ledger_scope.PostedDate <  toDateTime('{{FROM_DATE}}')
     GROUP BY MaterialGoodsID, RepositoryID
     HAVING sum(MainIWQty - MainOWQty) <> 0
         OR sum(IWAmt - OWAmt) <> 0
