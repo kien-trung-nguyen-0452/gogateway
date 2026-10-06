@@ -115,8 +115,6 @@ SELECT * FROM (
 --     (CASE WHEN @typeShowCurrency = 0 THEN DebitAmount ELSE DebitAmountOriginal END) <> 0
 -- nên dòng có cột đó bằng 0 bị loại hẳn, dù cột kia khác 0.
 --
--- Đã gặp thật khi đối chiếu: DWH thừa các dòng CTNB101→515, PC64668→635,
--- PC64669→635 (đều rỗng cột NT, chỉ có số ở cột quy đổi) mà proc không có.
                   WHERE debit_show != 0
 
                   UNION ALL

@@ -694,7 +694,8 @@ func buildDetailQuery(
 		sql = strings.ReplaceAll(sql, "{{POSTED_DATE_EXPR}}", "f.posted_date")
 		sql = strings.ReplaceAll(sql, "{{NO_EXPR}}", "f."+noCol)
 		sql = strings.ReplaceAll(sql, "{{REASON_EXPR}}", "f.reason")
-		sql = strings.ReplaceAll(sql, "{{JOURNAL_MEMO_EXPR}}", "f.reason")
+		// journal_memo ("Diễn giải") lấy description mức DÒNG (GLD) ở chế độ chi tiết
+		sql = strings.ReplaceAll(sql, "{{JOURNAL_MEMO_EXPR}}", "f.description")
 		sql = strings.ReplaceAll(sql, "{{ACCOUNT_EXPR}}", "f.account_number")
 		sql = strings.ReplaceAll(sql, "{{ACCOUNT_CORRESPONDING_EXPR}}", "f.account_corresponding")
 
