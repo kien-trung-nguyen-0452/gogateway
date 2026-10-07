@@ -84,6 +84,8 @@ WHERE f.company_id IN CAST([{{COMPANY_IDS}}] AS Array(UUID))
 -- Proc gốc chỉ kiểm hai cột quy đổi, KHÔNG kiểm cột nguyên tệ.
   AND (coalesce(f.debit_amount, 0) != 0 OR coalesce(f.credit_amount, 0) != 0)
     {{CURRENCY_FILTER}}
+-- Chỉ có giá trị khi chọn NGOẠI TỆ — xem foreignAmountFilter() ở service.go.
+    {{FOREIGN_AMOUNT_FILTER}}
     {{CLUSTER_FILTER}}
     {{GROUP_BY_CLAUSE}}
     )

@@ -115,6 +115,10 @@ type QueryParams struct {
 	GroupTheSameItem int
 	IsDependent      int
 	ClusterID        string
+
+	// isForeignCurrency: CurrencyID là ngoại tệ (khác đồng tiền hạch toán, khác
+	// 'TH'/rỗng). StreamSoQuy tự set — xem foreignAmountFilter().
+	isForeignCurrency bool
 }
 
 // =============================================================================
@@ -180,21 +184,41 @@ func (s *Service) StreamSoQuy(
 
 	// Loc theo LOAI TIEN cua tai khoan — khac han currencyFilter() von loc theo
 	// loai tien cua giao dich. Proc ap ca hai. Xem filterAccountsByCurrency().
-	accounts, err = s.filterAccountsByCurrency(ctx, p.PrimaryCompanyID, accounts, p)
+	//
+	// dataAccounts CHI dung de LOC SO LIEU (phat sinh + ton dau ky), KHONG dung
+	// de quyet dinh tai khoan nao len bao cao. Proc dung ton dau ky cho TUNG tai
+	// khoan trong @tblListAccount (dong 1024, 1042-1122) — danh sach CHUA loc
+	// loai tien; @tblListAccountByCurrency chi chan but toan o @tbDataGL /
+	// @tbDataGLDK. Nen chon USD/JPY thi tai khoan VND (vd 1113, 1111) van hien
+	// cap "So ton dau ky" + "Cong nhom" rong. Truoc day DWH cat luon tai khoan
+	// khoi `accounts` nen mat cac dong do.
+	dataAccounts, err := s.filterAccountsByCurrency(ctx, p.PrimaryCompanyID, accounts, p)
 	if err != nil {
 		return 0, fmt.Errorf("filter accounts by currency: %w", err)
 	}
-	if len(accounts) == 0 {
+	if len(dataAccounts) == 0 {
 		return 0, fmt.Errorf("khong con tai khoan nao sau khi loc theo loai tien")
 	}
 
-	sddkMap, err := s.loadOpeningBalances(ctx, companyIDs, accounts, p)
+	// Nhanh ngoai te cua proc co dieu kien loc so tien rieng — xem
+	// foreignAmountFilter(). PHAI set truoc loadOpeningBalances va
+	// buildDetailQuery vi ca hai deu ap dieu kien nay.
+	if p.CurrencyID != "" && p.CurrencyID != "TH" {
+		if main, err := s.mainCurrency(ctx, p.PrimaryCompanyID); err == nil && main != "" {
+			p.isForeignCurrency = p.CurrencyID != main
+		}
+	}
+
+	sddkMap, err := s.loadOpeningBalances(ctx, companyIDs, dataAccounts, p)
 	if err != nil {
 		return 0, fmt.Errorf("load opening balances: %w", err)
 	}
 
 	// Cong don theo cay: tai khoan cha ("111") phai gom ton dau ky ca nhanh con.
 	// PHAI chay sau loadOpeningBalances va truoc khi dung sddkMap.
+	//
+	// Truyen `accounts` (day du) de moi tai khoan hien thi deu co entry; tai
+	// khoan bi loc loai tien khong co trong sddkMap goc nen tu dong = 0.
 	//
 	// descendants dung tiep cho walker: dong Cong nhom cua tai khoan cha lay
 	// SoTon = TONG SoTon cac dong Cong nhom con (xem walker.closeAccount).
@@ -203,6 +227,10 @@ func (s *Service) StreamSoQuy(
 		return 0, fmt.Errorf("rollup opening balances: %w", err)
 	}
 
+	// walker dung `accounts` DAY DU — flushEmptyBefore()/finish() phat cap dong
+	// rong cho tai khoan khong co phat sinh. dataAccounts giu nguyen thu tu
+	// tuong doi cua accounts (xem filterAccountsByCurrency) nen indexOf() trong
+	// SQL va con tro `next` cua walker van chay tien mot chieu.
 	w := &walker{
 		onRow:            onRow,
 		sddkMap:          sddkMap,
@@ -214,7 +242,7 @@ func (s *Service) StreamSoQuy(
 		typeShowCurrency: p.TypeShowCurrency,
 	}
 
-	sql := buildDetailQuery(companyIDs, accounts, p, noCol, s.useStaging)
+	sql := buildDetailQuery(companyIDs, dataAccounts, p, noCol, s.useStaging)
 	rows, err := s.conn.Query(ctx, sql)
 	if err != nil {
 		return 0, fmt.Errorf("query error: %w", err)
@@ -771,6 +799,7 @@ func applyCommonPlaceholders(
 	sql = strings.ReplaceAll(sql, "{{ACCOUNT_NUMBERS}}", accList)
 	sql = strings.ReplaceAll(sql, "{{ACCOUNT_ORDER}}", accList)
 	sql = strings.ReplaceAll(sql, "{{CURRENCY_FILTER}}", currencyFilter(p.CurrencyID))
+	sql = strings.ReplaceAll(sql, "{{FOREIGN_AMOUNT_FILTER}}", foreignAmountFilter(p))
 	sql = strings.ReplaceAll(sql, "{{CLUSTER_FILTER}}", clusterFilter(p.ClusterID))
 	// query_opening.sql không có placeholder này; ReplaceAll bỏ qua nếu không
 	// tìm thấy nên gọi ở đây là an toàn.
@@ -1318,6 +1347,32 @@ func currencyFilter(currencyID string) string {
 		return ""
 	}
 	return fmt.Sprintf("AND f.currency_code = '%s'", currencyID)
+}
+
+// foreignAmountFilter tái hiện điều kiện lọc RIÊNG của nhánh ngoại tệ trong proc
+// (dòng 865-872 phát sinh, 894-899/925-930/951-958 tồn đầu kỳ):
+//
+//	(CASE WHEN @typeShowCurrency = 0 THEN DebitAmount  ELSE DebitAmountOriginal  END) > 0
+//	OR (CASE WHEN @typeShowCurrency = 0 THEN CreditAmount ELSE CreditAmountOriginal END) > 0
+//
+// Nhánh đồng tiền hạch toán / 'TH' KHÔNG có điều kiện này (chỉ lọc quy đổi <> 0).
+//
+// Hệ quả quan trọng: bút toán CHÊNH LỆCH TỶ GIÁ (quy đổi ≠ 0, nguyên tệ = 0 —
+// vd PC505/20026 dòng 1112/515) bị LOẠI khỏi cả tồn đầu kỳ QĐ. Thiếu điều kiện
+// này, tồn đầu kỳ 1112 USD ra -3.024.487.064 thay vì -5.193.303.368 như OLTP
+// (đã đối chiếu số liệu thật). Dùng `> 0` chứ không `!= 0` — bút toán âm cũng
+// bị proc loại.
+//
+// ── LUÔN XÉT NGUYÊN TỆ, KHÔNG THEO typeShowCurrency ─────────────────────────
+// Trên lý thuyết proc rẽ theo @typeShowCurrency, nhưng thực tế luồng OLTP ra
+// báo cáo GIỐNG HỆT NHAU dù người dùng chọn "Quy đổi" hay "Nguyên tệ" (đã kiểm
+// trên web), và khớp với nhánh ELSE (nguyên tệ). Nếu theo đúng tham số thì
+// chọn "Quy đổi" ở DWH sẽ ra -3.024.487.064, lệch OLTP. Vì vậy cố định nguyên tệ.
+func foreignAmountFilter(p QueryParams) string {
+	if !p.isForeignCurrency {
+		return ""
+	}
+	return "AND (coalesce(f.debit_amount_original, 0) > 0 OR coalesce(f.credit_amount_original, 0) > 0)"
 }
 
 func clusterFilter(clusterID string) string {
