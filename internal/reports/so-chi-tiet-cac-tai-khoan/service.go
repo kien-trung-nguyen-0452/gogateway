@@ -645,7 +645,12 @@ func buildDetailQuery(
 		// trong fact table) nen khong the ORDER BY o day; account_number va
 		// posted_date da nam trong ORDER BY ngoai (buildDetailQuery), tail chi
 		// con "no" la cot that con lai trong chuoi yeu cau.
-		sql = strings.ReplaceAll(sql, "{{ORDER_TAIL}}", "no")
+		//
+		// Sau "no" them order_priority + reference_id + key_id lam khoa phu: cac
+		// dong detail cung chung tu (cung account_number/posted_date/no) neu
+		// khong co khoa phu se HOA nhau, ClickHouse doc song song tra thu tu
+		// tuy y -> dong nhay vi tri, so du luy ke (walker.running) lech tai dong do.
+		sql = strings.ReplaceAll(sql, "{{ORDER_TAIL}}", orderTail)
 
 	} else {
 		// ── CHẾ ĐỘ CHI TIẾT ─────────────────────────────────────────────────
@@ -694,7 +699,7 @@ func buildDetailQuery(
 
 		sql = strings.ReplaceAll(sql, "{{GROUP_BY_CLAUSE}}", "")
 		// Xem ghi chu o nhanh GroupSameItem==1 ben tren ve thu tu yeu cau.
-		sql = strings.ReplaceAll(sql, "{{ORDER_TAIL}}", "no")
+		sql = strings.ReplaceAll(sql, "{{ORDER_TAIL}}", orderTail)
 	}
 
 	return applyCommonPlaceholders(sql, companyIDs, accounts, p, typeLedger, useStaging)
@@ -878,6 +883,12 @@ func queryCtx(ctx context.Context, staging bool) context.Context {
 // stagingMaxBytesInJoin: ngưỡng RAM (byte) cho hash table JOIN trước khi
 // grace_hash chia bucket/spill. 1GB để chừa chỗ cho các query song song.
 const stagingMaxBytesInJoin = 1 << 30
+
+// orderTail là phần đuôi của ORDER BY (sau account_number, posted_date) dùng ALIAS
+// của SELECT trong query.sql: no = số chứng từ, order_priority = thứ tự dòng trong
+// chứng từ, reference_id + key_id = khoá phụ để thứ tự luôn xác định (tất định)
+// khi các dòng trùng hết các khoá trước.
+const orderTail = "no, order_priority, reference_id, key_id"
 
 func (s *Service) loadOpeningBalances(
 	ctx context.Context, companyIDs, accounts []string, p QueryParams, typeLedger int,
