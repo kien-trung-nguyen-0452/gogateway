@@ -33,7 +33,7 @@ WITH base AS (
     SELECT
    {{REF_ID_EXPR}}                              AS ref_id,
    {{TYPE_ID_EXPR}}                             AS type_id,
-   {{DATE_EXPR}}                                AS voucher_date,
+   {{POSTED_DATE_EXPR}}                                AS voucher_date,
    {{POSTED_DATE_EXPR}}                         AS posted_date,
    {{NO_EXPR}}                                  AS ref_no,
    {{REASON_EXPR}}                              AS reason,
