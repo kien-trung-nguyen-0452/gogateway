@@ -54,6 +54,11 @@ jobs:
           sudo chmod 600 /etc/gogateway/gogateway.env
           sudo chown root:root /etc/gogateway/gogateway.env
 
+          while IFS= read -r line; do
+            [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+            echo "$line" >> "$GITHUB_ENV"
+          done < /etc/gogateway/gogateway.env
+
       - name: Install binary
         run: |
           sudo systemctl stop gogateway || true
