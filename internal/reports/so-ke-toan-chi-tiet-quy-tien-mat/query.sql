@@ -107,8 +107,8 @@ SELECT * FROM (
                       custom_field_detail1, custom_field_detail2, custom_field_detail3,
                       custom_field_detail4, custom_field_detail5
                   FROM base
--- CHỈ xét cột NGUYÊN TỆ — khớp proc dòng 1189-1190.
---
+
+
 -- ĐỪNG thêm `OR debit_qd != 0`. Đã thử và SAI: nó kéo vào các bút toán chỉ có
 -- số ở phần quy đổi, nguyên tệ = 0 — điển hình là CHÊNH LỆCH TỶ GIÁ hạch toán
 -- vào 515 (doanh thu tài chính) / 635 (chi phí tài chính).
