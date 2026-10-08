@@ -51,6 +51,7 @@
         gl.TypeID                 AS type_id,
         gl.TypeLedger             AS type_ledger,
         toDate(gl.PostedDate)     AS posted_date,
+        toDate(gl.Date)           AS voucher_date,
         gl.NoFBook                AS no_fbook,
         gl.NoMBook                AS no_mbook,
         gl.InvoiceNo              AS invoice_no,
