@@ -640,17 +640,17 @@ func buildDetailQuery(
 		// ORDER BY dùng ALIAS, không phải f.* — sau GROUP BY thì cột gốc không
 		// tham chiếu trực tiếp được.
 		//
-		// Thu tu yeu cau: AccountNumber, OrderType, PostedDate, Date, OrderNumber, No.
-		// OrderType/OrderNumber/Date la field walker tu sinh (khong co that
-		// trong fact table) nen khong the ORDER BY o day; account_number va
-		// posted_date da nam trong ORDER BY ngoai (buildDetailQuery), tail chi
-		// con "no" la cot that con lai trong chuoi yeu cau.
-		//
-		// Sau "no" them order_priority + reference_id + key_id lam khoa phu: cac
-		// dong detail cung chung tu (cung account_number/posted_date/no) neu
-		// khong co khoa phu se HOA nhau, ClickHouse doc song song tra thu tu
-		// tuy y -> dong nhay vi tri, so du luy ke (walker.running) lech tai dong do.
-		sql = strings.ReplaceAll(sql, "{{ORDER_TAIL}}", orderTail)
+		// Thu tu cua Proc_SO_CHI_TIET_CAC_TAI_KHOAN (ORDER BY cuoi proc):
+		//   AccountNumber, OrderType, PostedDate, Date, OrderNumber, No, OrderPriority
+		// OrderType la hang so o dong chi tiet. Date = GL.Date (ngay chung tu).
+		// OrderNumber la CASE "thu truoc chi sau" tinh tren TK + phat sinh No (xem
+		// orderNumberExpr), KHONG phai field walker tu sinh. account_number va
+		// posted_date da nam trong ORDER BY ngoai (query.sql), day la phan duoi.
+		// Them reference_id + account_corresponding + key_id lam khoa phu de thu tu
+		// tat dinh: o nhanh gop key_id khong phan biet cac nhom cung chung tu/cung TK
+		// khac TK doi ung, nen thieu khoa phu se HOA nhau va dong nhay vi tri
+		// (so du luy ke walker.running lech tai dong do).
+		sql = strings.ReplaceAll(sql, "{{ORDER_TAIL}}", orderTailGrouped)
 
 	} else {
 		// ── CHẾ ĐỘ CHI TIẾT ─────────────────────────────────────────────────
@@ -699,7 +699,7 @@ func buildDetailQuery(
 
 		sql = strings.ReplaceAll(sql, "{{GROUP_BY_CLAUSE}}", "")
 		// Xem ghi chu o nhanh GroupSameItem==1 ben tren ve thu tu yeu cau.
-		sql = strings.ReplaceAll(sql, "{{ORDER_TAIL}}", orderTail)
+		sql = strings.ReplaceAll(sql, "{{ORDER_TAIL}}", orderTailDetail)
 	}
 
 	return applyCommonPlaceholders(sql, companyIDs, accounts, p, typeLedger, useStaging)
@@ -884,11 +884,22 @@ func queryCtx(ctx context.Context, staging bool) context.Context {
 // grace_hash chia bucket/spill. 1GB để chừa chỗ cho các query song song.
 const stagingMaxBytesInJoin = 1 << 30
 
-// orderTail là phần đuôi của ORDER BY (sau account_number, posted_date) dùng ALIAS
-// của SELECT trong query.sql: no = số chứng từ, order_priority = thứ tự dòng trong
-// chứng từ, reference_id + key_id = khoá phụ để thứ tự luôn xác định (tất định)
-// khi các dòng trùng hết các khoá trước.
-const orderTail = "no, order_priority, reference_id, key_id"
+// orderNumberExpr tái hiện cột OrderNumber ("thu trước chi sau") của
+// Proc_SO_CHI_TIET_CAC_TAI_KHOAN: 0 nếu TK là 11x, hoặc 15x nhưng không phải 154x, VÀ
+// phát sinh Nợ khác 0; còn lại 1. Dùng ALIAS account_number/debit_amount của SELECT trong
+// query.sql (nhánh gộp: debit_amount là SUM, đúng như proc tính trên tổng đã gộp).
+const orderNumberExpr = "if(((account_number LIKE '11%') OR (account_number LIKE '15%' AND account_number NOT LIKE '154%')) AND debit_amount != 0, 0, 1)"
+
+// Đuôi ORDER BY (sau account_number, posted_date) theo thứ tự của proc: Date, OrderNumber,
+// No, OrderPriority, rồi khoá phụ để kết quả tất định. NULLS FIRST khớp SQL Server (NULL
+// đứng trước). Date = GL.Date (staging: voucher_date; fact đã có cột voucher_date); ở
+// nhánh gộp voucher_date không nằm trong GROUP BY nên phải dùng min().
+const (
+	orderTailGrouped = "min(f.voucher_date) ASC NULLS FIRST, " + orderNumberExpr +
+		", no ASC NULLS FIRST, order_priority ASC NULLS FIRST, reference_id, account_corresponding, key_id"
+	orderTailDetail = "f.voucher_date ASC NULLS FIRST, " + orderNumberExpr +
+		", no ASC NULLS FIRST, order_priority ASC NULLS FIRST, reference_id, key_id"
+)
 
 func (s *Service) loadOpeningBalances(
 	ctx context.Context, companyIDs, accounts []string, p QueryParams, typeLedger int,
