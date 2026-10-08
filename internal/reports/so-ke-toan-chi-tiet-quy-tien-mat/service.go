@@ -700,6 +700,9 @@ func buildDetailQuery(
 		// Proc gộp theo AccountingObjectID; fact chỉ có code/name nên dùng code
 		// làm khoá thay thế. Hai đối tượng trùng mã sẽ bị gộp — hiếm, nhưng
 		// đáng biết.
+		// Chế độ gộp KHÔNG lọc ngày chứng từ — xem voucherDateFilter().
+		sql = strings.ReplaceAll(sql, "{{VOUCHER_DATE_FILTER}}", "")
+
 		sql = strings.ReplaceAll(sql, "{{GROUP_BY_CLAUSE}}",
 			"GROUP BY f.reference_id, f.account_number, f.account_corresponding, "+
 				"f.accounting_object_code, f.accounting_object_name, "+
@@ -752,10 +755,36 @@ func buildDetailQuery(
 				fmt.Sprintf("f.custom_field_detail%d", i))
 		}
 
+		sql = strings.ReplaceAll(sql, "{{VOUCHER_DATE_FILTER}}", voucherDateFilter())
 		sql = strings.ReplaceAll(sql, "{{GROUP_BY_CLAUSE}}", "")
 	}
 
 	return applyCommonPlaceholders(sql, companyIDs, accounts, p, useStaging)
+}
+
+// voucherDateFilter - chế độ KHÔNG GỘP phải lọc thêm NGÀY CHỨNG TỪ trong kỳ
+// để khớp proc. Trả về chuỗi còn chứa {{FROM_DATE}}/{{TO_DATE}}, để
+// applyCommonPlaceholders() thay tiếp.
+//
+// Lý do (Proc_SO_KE_TOAN_CHI_TIET_QUY_TIEN_MAT, nhánh @GroupTheSameItem = 0):
+// proc nạp @tbDataGL bằng INSERT ... SELECT THEO VỊ TRÍ cột, trong khi thứ tự
+// SELECT là (GL.PostedDate, GL.Date) còn bảng khai báo là (Date, PostedDate).
+// Alias bị bỏ qua nên hai cột TRÁO NHAU. Vì vậy:
+//   - bước nạp lọc  GL.PostedDate between @FromDate and @ToDate
+//   - bước cuối lọc "PostedDate" between ... nhưng giá trị thật là GL.Date
+//
+// => sổ thường chỉ hiện chứng từ có CẢ ngày hạch toán LẪN ngày chứng từ trong
+// kỳ. Đã đối chiếu: PT030 (công ty 2892F1AB…, hạch toán 22/07/2026, chứng từ
+// 12/03/2025) bị proc loại khỏi kỳ 07/2026, DWH thì vẫn hiện.
+//
+// Chế độ gộp KHÔNG bị: proc gán bằng UPDATE ... SET PostedDate = GL.PostedDate,
+// Date = GL.Date theo TÊN cột, nên chỉ lọc ngày hạch toán.
+//
+// voucher_date Nullable: NULL so sánh ra NULL nên dòng bị loại — khớp proc
+// (NULL between ... cũng bị loại).
+func voucherDateFilter() string {
+	return "AND f.voucher_date >= toDate('{{FROM_DATE}}') " +
+		"AND f.voucher_date <= toDate('{{TO_DATE}}')"
 }
 
 func buildOpeningQuery(companyIDs, accounts []string, p QueryParams, useStaging bool) string {

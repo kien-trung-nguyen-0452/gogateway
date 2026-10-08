@@ -33,7 +33,7 @@ WITH base AS (
     SELECT
    {{REF_ID_EXPR}}                              AS ref_id,
    {{TYPE_ID_EXPR}}                             AS type_id,
-   {{POSTED_DATE_EXPR}}                                AS voucher_date,
+   {{DATE_EXPR}}                                AS voucher_date,
    {{POSTED_DATE_EXPR}}                         AS posted_date,
    {{NO_EXPR}}                                  AS ref_no,
    {{REASON_EXPR}}                              AS reason,
@@ -61,6 +61,8 @@ FROM {{GL_SOURCE}}
 WHERE f.company_id IN CAST([{{COMPANY_IDS}}] AS Array(UUID))
   AND f.posted_date >= toDate('{{FROM_DATE}}')
   AND f.posted_date <= toDate('{{TO_DATE}}')
+-- Chỉ có giá trị ở chế độ KHÔNG GỘP — xem voucherDateFilter() ở service.go.
+    {{VOUCHER_DATE_FILTER}}
 -- type_ledger = 2 là bút toán dùng chung cho cả sổ tài chính lẫn quản trị
   AND (f.type_ledger = {{TYPE_LEDGER}} OR f.type_ledger = 2)
   AND f.account_number IN ({{ACCOUNT_NUMBERS}})
