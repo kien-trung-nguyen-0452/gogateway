@@ -51,6 +51,7 @@ jobs:
           HTTP_PORT=8089
           SO_CHI_TIET_TAI_KHOAN_DATA_SOURCE=${{ secrets.SO_CHI_TIET_TAI_KHOAN_DATA_SOURCE }}
           SO_KE_TOAN_CHI_TIET_QUY_TIEN_MAT_DATA_SOURCE=${{ secrets.SO_KE_TOAN_CHI_TIET_QUY_TIEN_MAT_DATA_SOURCE }}
+          SO_CHI_TIET_VAT_LIEU_OPENING_BALANCE_SOURCE=${{ secrets.SO_CHI_TIET_VAT_LIEU_OPENING_BALANCE_SOURCE }}
           EOF
           sudo chmod 600 /etc/gogateway/gogateway.env
           sudo chown root:root /etc/gogateway/gogateway.env
