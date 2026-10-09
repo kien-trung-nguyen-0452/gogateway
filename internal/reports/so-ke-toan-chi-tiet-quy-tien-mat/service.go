@@ -196,9 +196,10 @@ func (s *Service) StreamSoQuy(
 	if err != nil {
 		return 0, fmt.Errorf("filter accounts by currency: %w", err)
 	}
-	if len(dataAccounts) == 0 {
-		return 0, fmt.Errorf("khong con tai khoan nao sau khi loc theo loai tien")
-	}
+	// dataAccounts RONG la hop le (vd chon VND, chi tich tai khoan ngoai te
+	// 1112): khong truy van so lieu, walker.finish() van phat cap dong "So ton
+	// dau ky" + "Cong nhom" rong cho tung tai khoan — khop proc.
+	hasData := len(dataAccounts) > 0
 
 	// Nhanh ngoai te cua proc co dieu kien loc so tien rieng — xem
 	// foreignAmountFilter(). PHAI set truoc loadOpeningBalances va
@@ -209,9 +210,12 @@ func (s *Service) StreamSoQuy(
 		}
 	}
 
-	sddkMap, err := s.loadOpeningBalances(ctx, companyIDs, dataAccounts, p)
-	if err != nil {
-		return 0, fmt.Errorf("load opening balances: %w", err)
+	sddkMap := map[string]balance{}
+	if hasData {
+		sddkMap, err = s.loadOpeningBalances(ctx, companyIDs, dataAccounts, p)
+		if err != nil {
+			return 0, fmt.Errorf("load opening balances: %w", err)
+		}
 	}
 
 	// Cong don theo cay: tai khoan cha ("111") phai gom ton dau ky ca nhanh con.
@@ -242,28 +246,10 @@ func (s *Service) StreamSoQuy(
 		typeShowCurrency: p.TypeShowCurrency,
 	}
 
-	sql := buildDetailQuery(companyIDs, dataAccounts, p, noCol, s.useStaging)
-	rows, err := s.conn.Query(ctx, sql)
-	if err != nil {
-		return 0, fmt.Errorf("query error: %w", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		select {
-		case <-ctx.Done():
-			return 0, ctx.Err()
-		default:
+	if hasData {
+		if err := s.pushDetailRows(ctx, w, buildDetailQuery(companyIDs, dataAccounts, p, noCol, s.useStaging)); err != nil {
+			return 0, err
 		}
-
-		d, err := scanRow(rows)
-		if err != nil {
-			return 0, fmt.Errorf("scan error: %w", err)
-		}
-		w.push(d)
-	}
-	if err := rows.Err(); err != nil {
-		return 0, fmt.Errorf("row iteration error: %w", err)
 	}
 
 	if err := w.finish(); err != nil {
@@ -271,6 +257,33 @@ func (s *Service) StreamSoQuy(
 	}
 
 	return time.Since(start).Milliseconds(), nil
+}
+
+// pushDetailRows chay query phat sinh trong ky va day tung dong vao walker.
+func (s *Service) pushDetailRows(ctx context.Context, w *walker, sql string) error {
+	rows, err := s.conn.Query(ctx, sql)
+	if err != nil {
+		return fmt.Errorf("query error: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		d, err := scanRow(rows)
+		if err != nil {
+			return fmt.Errorf("scan error: %w", err)
+		}
+		w.push(d)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("row iteration error: %w", err)
+	}
+	return nil
 }
 
 // =============================================================================
@@ -963,14 +976,23 @@ func (s *Service) filterAccountsByCurrency(
 		wantForeign = 1
 	}
 
+	// Doc co ngoai te cua MOI tai khoan (khong loc theo co trong SQL) de phan
+	// biet hai truong hop:
+	//   - dim KHONG co dong nao cho cac tai khoan nay → dim loi/chua nap → tra
+	//     ve danh sach goc (tha thua con hon bao cao trong).
+	//   - dim CO du lieu nhung khong tai khoan nao dung loai tien → tra ve RONG.
+	//     Proc cung vay: chon VND ma chi tich 1112 (ngoai te) thi
+	//     @tblListAccountByCurrency khong chua 1112, bao cao chi con cap dong
+	//     "So ton dau ky" + "Cong nhom" rong. Truoc day hai truong hop gop chung
+	//     vao nhanh "tra ve danh sach goc" nen DWH van hien so lieu 1112.
 	sql := fmt.Sprintf(`
-		SELECT DISTINCT d.account_number
+		SELECT d.account_number, max(d.is_foreign_currency)
 		FROM eb_dwh.dim_account d
-		WHERE d.company_id           = '%s'
-		  AND d.is_current           = 1
-		  AND d.is_foreign_currency  = %d
-		  AND d.account_number IN (%s)`,
-		companyID, wantForeign, quoteJoin(accounts))
+		WHERE d.company_id     = '%s'
+		  AND d.is_current     = 1
+		  AND d.account_number IN (%s)
+		GROUP BY d.account_number`,
+		companyID, quoteJoin(accounts))
 
 	rows, err := s.conn.Query(ctx, sql)
 	if err != nil {
@@ -978,30 +1000,33 @@ func (s *Service) filterAccountsByCurrency(
 	}
 	defer rows.Close()
 
+	found := 0
 	keep := make(map[string]bool, len(accounts))
 	for rows.Next() {
 		var a string
-		if err := rows.Scan(&a); err != nil {
+		var foreign uint8
+		if err := rows.Scan(&a, &foreign); err != nil {
 			return nil, err
 		}
-		keep[a] = true
+		found++
+		if int(foreign) == wantForeign {
+			keep[a] = true
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	if len(keep) == 0 {
+	if found == 0 {
 		return accounts, nil
 	}
 
 	// Giu thu tu ban dau — {{ACCOUNT_ORDER}} dung indexOf() tren danh sach nay.
+	// Co the RONG — StreamSoQuy xu ly bang cach chi phat cap dong rong.
 	out := make([]string, 0, len(accounts))
 	for _, a := range accounts {
 		if keep[a] || a == "111" {
 			out = append(out, a)
 		}
-	}
-	if len(out) == 0 {
-		return accounts, nil
 	}
 	return out, nil
 }

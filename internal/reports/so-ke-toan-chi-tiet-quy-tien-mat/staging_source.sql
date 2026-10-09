@@ -90,7 +90,14 @@
         gl.CustomFieldDetail4 AS custom_field_detail4,
         gl.CustomFieldDetail5 AS custom_field_detail5,
         gl.CompanyID   AS company_id,
-        gl.CurrencyID  AS currency_code,
+        -- currency_code lấy MỨC DÒNG (gld), KHÔNG lấy header (gl): fact
+        -- denormalize theo GLD.CurrencyID. Chứng từ ngoại tệ có dòng VND, ví dụ
+        -- PC454/20026 (header USD, dòng 1111 là VND, dòng 1112 là USD). Lấy
+        -- gl.CurrencyID thì dòng 1111 thành USD và bị {{CURRENCY_FILTER}} loại
+        -- khi xem sổ VND, trong khi fact và proc vẫn hiện. Đã đối chiếu năm 2026
+        -- công ty 2892F1AB…: 12.343/12.343 nhóm khớp gld.CurrencyID, còn
+        -- gl.CurrencyID lệch 108 nhóm.
+        gld.CurrencyID AS currency_code,
         gl.cluster_id  AS cluster_id,
         0              AS is_deleted
     FROM eb_staging.stg_general_ledger AS gl FINAL
