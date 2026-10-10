@@ -6,6 +6,7 @@
 - TO_DATE                Giới hạn cuối kỳ, so với PostedDate
 - REPOSITORY_FILTER      Lọc cột RepositoryID, rỗng nghĩa là lấy tất cả
 - MATERIAL_GOODS_FILTER  Lọc cột MaterialGoodsID, rỗng nghĩa là lấy tất cả
+- OPENING_STOCK_BODY     Thân nhánh tồn đầu kỳ, raw hoặc checkpoint, do service.go chọn
 */
 WITH ledger_scope AS
 (
@@ -33,50 +34,10 @@ WITH ledger_scope AS
 SELECT *
 FROM
 (
-    -- IsOpeningStock = true (1/2): Luỹ kế tồn tới hết tháng liền trước tháng FROM_DATE, đọc thẳng
-    -- từ bảng checkpoint thay vì cộng dồn lại toàn bộ lịch sử.
-    SELECT
-        true                                                                AS IsOpeningStock,
-        rlc.material_goods_id                                               AS MaterialGoodsID,
-        rlc.repository_id                                                   AS RepositoryID,
-        NULL                                                                AS DetailID,
-        NULL                                                                AS ReferenceID,
-        NULL                                                                AS TypeID,
-        NULL                                                                AS PostedDate,
-        CAST(argMax(rlc.cumulative_qty, rlc.month) AS Decimal128(10))       AS MainIWQuantity,
-        CAST(0 AS Decimal128(10))                                           AS MainOWQuantity,
-        CAST(argMax(rlc.cumulative_amount, rlc.month) AS Decimal128(10))    AS IWAmount,
-        CAST(0 AS Decimal128(10))                                           AS OWAmount
-    FROM eb.repository_ledger_checkpoint AS rlc FINAL
-    WHERE rlc.company_id = toUUID('{{COMPANY_ID}}')
-      AND (rlc.type_ledger = {{TYPE_LEDGER}} OR rlc.type_ledger = 2)
-      AND rlc.month < toYYYYMM(toDateTime('{{FROM_DATE}}'))
-      AND (rlc.repository_id, rlc.material_goods_id) IN
-          (SELECT RepositoryID, MaterialGoodsID FROM ledger_scope)
-    GROUP BY rlc.repository_id, rlc.material_goods_id, rlc.type_ledger
-
-    UNION ALL
-
-    -- IsOpeningStock = true (2/2): Phần lẻ từ đầu tháng FROM_DATE đến FROM_DATE, phần mà checkpoint
-    -- chưa phủ. Cận dưới là hằng số nên ClickHouse bỏ qua được phần dữ liệu cũ hơn.
-    SELECT
-        true                                                    AS IsOpeningStock,
-        MaterialGoodsID                                         AS MaterialGoodsID,
-        RepositoryID                                            AS RepositoryID,
-        NULL                                                    AS DetailID,
-        NULL                                                    AS ReferenceID,
-        NULL                                                    AS TypeID,
-        NULL                                                    AS PostedDate,
-        CAST(sum(MainIWQty - MainOWQty) AS Decimal128(10))      AS MainIWQuantity,
-        CAST(0                          AS Decimal128(10))      AS MainOWQuantity,
-        CAST(sum(IWAmt - OWAmt)         AS Decimal128(10))      AS IWAmount,
-        CAST(0                          AS Decimal128(10))      AS OWAmount
-    FROM ledger_scope
-    WHERE ledger_scope.PostedDate >= toDateTime(toStartOfMonth(toDateTime('{{FROM_DATE}}')))
-      AND ledger_scope.PostedDate <  toDateTime('{{FROM_DATE}}')
-    GROUP BY MaterialGoodsID, RepositoryID
-    HAVING sum(MainIWQty - MainOWQty) <> 0
-        OR sum(IWAmt - OWAmt) <> 0
+    -- IsOpeningStock = true: Tồn đầu kỳ. Thân cụ thể do service.go ghép vào, mặc định là
+    -- opening_stock_raw.sql, đặt TINH_GIA_XUAT_KHO_OPENING_STOCK_SOURCE=checkpoint thì
+    -- đổi sang opening_stock_checkpoint.sql
+{{OPENING_STOCK_BODY}}
 
     UNION ALL
 
