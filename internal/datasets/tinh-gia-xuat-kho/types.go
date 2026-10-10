@@ -15,6 +15,12 @@ type Handler struct {
 // Service chứa toàn bộ logic đọc dữ liệu, không phụ thuộc HTTP.
 type Service struct {
 	conn clickhouse.Conn
+
+	// useCheckpoint: true thì tồn đầu kỳ lấy từ eb.repository_ledger_checkpoint cộng phần lẻ raw,
+	// thay vì cộng dồn toàn bộ lịch sử. Xem opening_stock_checkpoint.sql và
+	// config.TinhGiaXuatKhoOpeningStockUseCheckpoint, bật bằng biến môi trường
+	// TINH_GIA_XUAT_KHO_OPENING_STOCK_SOURCE=checkpoint, không cần deploy lại code.
+	useCheckpoint bool
 }
 
 // driverRows là interface tối thiểu để scanRow dùng được, không phụ thuộc trực tiếp vào kiểu cụ thể của clickhouse-go.
