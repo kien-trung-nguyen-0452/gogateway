@@ -61,6 +61,8 @@ FROM {{GL_SOURCE}}
 WHERE f.company_id IN CAST([{{COMPANY_IDS}}] AS Array(UUID))
   AND f.posted_date >= toDate('{{FROM_DATE}}')
   AND f.posted_date <= toDate('{{TO_DATE}}')
+-- Chỉ có giá trị ở chế độ KHÔNG GỘP — xem voucherDateFilter() ở service.go.
+    {{VOUCHER_DATE_FILTER}}
 -- type_ledger = 2 là bút toán dùng chung cho cả sổ tài chính lẫn quản trị
   AND (f.type_ledger = {{TYPE_LEDGER}} OR f.type_ledger = 2)
   AND f.account_number IN ({{ACCOUNT_NUMBERS}})
@@ -84,6 +86,8 @@ WHERE f.company_id IN CAST([{{COMPANY_IDS}}] AS Array(UUID))
 -- Proc gốc chỉ kiểm hai cột quy đổi, KHÔNG kiểm cột nguyên tệ.
   AND (coalesce(f.debit_amount, 0) != 0 OR coalesce(f.credit_amount, 0) != 0)
     {{CURRENCY_FILTER}}
+-- Chỉ có giá trị khi chọn NGOẠI TỆ — xem foreignAmountFilter() ở service.go.
+    {{FOREIGN_AMOUNT_FILTER}}
     {{CLUSTER_FILTER}}
     {{GROUP_BY_CLAUSE}}
     )
@@ -105,8 +109,8 @@ SELECT * FROM (
                       custom_field_detail1, custom_field_detail2, custom_field_detail3,
                       custom_field_detail4, custom_field_detail5
                   FROM base
--- CHỈ xét cột NGUYÊN TỆ — khớp proc dòng 1189-1190.
---
+
+
 -- ĐỪNG thêm `OR debit_qd != 0`. Đã thử và SAI: nó kéo vào các bút toán chỉ có
 -- số ở phần quy đổi, nguyên tệ = 0 — điển hình là CHÊNH LỆCH TỶ GIÁ hạch toán
 -- vào 515 (doanh thu tài chính) / 635 (chi phí tài chính).
@@ -115,8 +119,6 @@ SELECT * FROM (
 --     (CASE WHEN @typeShowCurrency = 0 THEN DebitAmount ELSE DebitAmountOriginal END) <> 0
 -- nên dòng có cột đó bằng 0 bị loại hẳn, dù cột kia khác 0.
 --
--- Đã gặp thật khi đối chiếu: DWH thừa các dòng CTNB101→515, PC64668→635,
--- PC64669→635 (đều rỗng cột NT, chỉ có số ở cột quy đổi) mà proc không có.
                   WHERE debit_show != 0
 
                   UNION ALL

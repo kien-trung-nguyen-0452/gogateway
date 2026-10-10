@@ -72,6 +72,7 @@ func Load() (Config, error) {
 			getEnv("TINH_GIA_XUAT_KHO_OPENING_STOCK_SOURCE", "raw"), "checkpoint"),
 	}
 
+	//
 	if cfg.CHPassword == "" {
 		return cfg, fmt.Errorf("bien moi truong CH_PASSWORD chua duoc set")
 	}
