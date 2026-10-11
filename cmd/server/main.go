@@ -70,7 +70,9 @@ func main() {
 	taiKhoanHandler := tk.NewHandler(taiKhoanService)
 
 	// Du lieu tho phuc vu Tinh Gia Xuat Kho
-	tinhGiaService := tinh_gia_xuat_kho.NewService(conn)
+	// useCheckpoint: xem config.TinhGiaXuatKhoOpeningStockUseCheckpoint - xoa bien moi truong
+	// TINH_GIA_XUAT_KHO_OPENING_STOCK_SOURCE roi khoi dong lai la quay ve tinh toan bo lich su.
+	tinhGiaService := tinh_gia_xuat_kho.NewService(conn, cfg.TinhGiaXuatKhoOpeningStockUseCheckpoint)
 	tinhGiaHandler := tinh_gia_xuat_kho.NewHandler(tinhGiaService)
 
 	mux := api.NewRouter(tichLuyHandler, soChiTietHandler, tinhGiaHandler)

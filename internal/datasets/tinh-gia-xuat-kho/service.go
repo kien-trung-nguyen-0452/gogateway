@@ -17,6 +17,12 @@ import (
 //go:embed query.sql
 var queryTemplate string
 
+//go:embed opening_stock_raw.sql
+var openingStockRawBody string
+
+//go:embed opening_stock_checkpoint.sql
+var openingStockCheckpointBody string
+
 var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 // datePattern định dạng "2026-08-01".
@@ -25,8 +31,13 @@ var datePattern = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
 // dateTimePattern định dạng "2026-08-01 00:00:00".
 var dateTimePattern = regexp.MustCompile(`^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$`)
 
-func NewService(conn clickhouse.Conn) *Service {
-	return &Service{conn: conn}
+func NewService(conn clickhouse.Conn, useCheckpoint bool) *Service {
+	source := "raw (quét toàn bộ eb.repository_ledger)"
+	if useCheckpoint {
+		source = "checkpoint (eb.repository_ledger_checkpoint + phần lẻ raw)"
+	}
+	log.Printf("tinh-gia-xuat-kho: nguồn tồn đầu kỳ = %s [biến môi trường TINH_GIA_XUAT_KHO_OPENING_STOCK_SOURCE]", source)
+	return &Service{conn: conn, useCheckpoint: useCheckpoint}
 }
 
 // GetTinhGiaXuatKho đọc dữ liệu thô phục vụ tính giá xuất kho, trả thẳng danh sách dòng sổ kho.
@@ -35,7 +46,7 @@ func (s *Service) GetTinhGiaXuatKho(ctx context.Context, p RequestBody) ([]Row, 
 		return nil, err
 	}
 
-	sql := buildQuery(p)
+	sql := buildQuery(p, s.useCheckpoint)
 
 	start := time.Now()
 
@@ -62,8 +73,8 @@ func (s *Service) GetTinhGiaXuatKho(ctx context.Context, p RequestBody) ([]Row, 
 	return result, nil
 }
 
-// buildQuery thay tham số vào query.sql.
-func buildQuery(requestBody RequestBody) string {
+// buildQuery thay tham số vào query.sql, useCheckpoint quyết định thân nhánh tồn đầu kỳ.
+func buildQuery(requestBody RequestBody, useCheckpoint bool) string {
 	repositoryFilter := ""
 	if len(requestBody.RepositoryIDs) > 0 {
 		repositoryFilter = fmt.Sprintf(
@@ -80,7 +91,13 @@ func buildQuery(requestBody RequestBody) string {
 		)
 	}
 
-	sql := queryTemplate
+	openingStockBody := openingStockRawBody
+	if useCheckpoint {
+		openingStockBody = openingStockCheckpointBody
+	}
+
+	// Ghép thân tồn đầu kỳ trước, vì chính thân đó còn chứa COMPANY_ID, TYPE_LEDGER và FROM_DATE
+	sql := strings.ReplaceAll(queryTemplate, "{{OPENING_STOCK_BODY}}", openingStockBody)
 	sql = strings.ReplaceAll(sql, "{{COMPANY_ID}}", requestBody.CompanyID)
 	sql = strings.ReplaceAll(sql, "{{TYPE_LEDGER}}", fmt.Sprintf("%d", requestBody.TypeLedger))
 	sql = strings.ReplaceAll(sql, "{{FROM_DATE}}", requestBody.FromDate)
