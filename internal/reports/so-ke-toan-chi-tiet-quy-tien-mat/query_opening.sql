@@ -60,5 +60,7 @@ WHERE f.company_id IN CAST([{{COMPANY_IDS}}] AS Array(UUID))
   AND f.is_deleted = 0
   AND (coalesce(f.debit_amount, 0) != 0 OR coalesce(f.credit_amount, 0) != 0)
   {{CURRENCY_FILTER}}
+-- Chỉ có giá trị khi chọn NGOẠI TỆ — xem foreignAmountFilter() ở service.go.
+  {{FOREIGN_AMOUNT_FILTER}}
   {{CLUSTER_FILTER}}
 GROUP BY f.account_number

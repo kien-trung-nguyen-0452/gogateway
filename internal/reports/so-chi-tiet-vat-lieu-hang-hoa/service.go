@@ -4,6 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"log"
 	"regexp"
 	"strings"
 	"time"
@@ -16,14 +17,45 @@ import (
 //go:embed query.sql
 var queryTemplate string
 
+//go:embed opening_balance_checkpoint.sql
+var openingBalanceCheckpointBody string
+
+// openingBalanceRawBody la gia tri {{OPENING_BALANCE_BODY}} mac dinh - cong
+// don TOAN BO lich su PostedDate < FROM_DATE tu eb.repository_ledger (nhu
+// truoc khi co bang checkpoint).
+const openingBalanceRawBody = `SELECT
+    RepositoryID, MaterialGoodsID,
+    sum(if(UnitID = MainUnitID, ifNull(IWQuantity, 0), ifNull(MainIWQuantity, 0))
+    - if(UnitID = MainUnitID, ifNull(OWQuantity, 0), ifNull(MainOWQuantity, 0))) AS NetQuantity,
+    sum(ifNull(IWAmount, 0) - ifNull(OWAmount, 0)) AS NetAmount,
+    max(Date) AS MaxPreDate,
+    max(MainUnitPrice) AS MaxMainUnitPrice
+FROM ledger_scope
+WHERE PostedDate < toDateTime('{{FROM_DATE}}')
+GROUP BY RepositoryID, MaterialGoodsID`
+
 var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 type Service struct {
 	conn clickhouse.Conn
+
+	// useCheckpoint: true = tinh opening_balance qua
+	// eb.repository_ledger_checkpoint + phan le raw thay vi cong don toan bo
+	// lich su - xem opening_balance_checkpoint.sql va
+	// config.SoChiTietVatLieuOpeningBalanceUseCheckpoint. Bat bang bien moi
+	// truong SO_CHI_TIET_VAT_LIEU_OPENING_BALANCE_SOURCE=checkpoint, khong can
+	// deploy lai code, giong useStaging cua so-chi-tiet-cac-tai-khoan /
+	// so-ke-toan-chi-tiet-quy-tien-mat.
+	useCheckpoint bool
 }
 
-func NewService(conn clickhouse.Conn) *Service {
-	return &Service{conn: conn}
+func NewService(conn clickhouse.Conn, useCheckpoint bool) *Service {
+	source := "raw (full-scan eb.repository_ledger)"
+	if useCheckpoint {
+		source = "checkpoint (eb.repository_ledger_checkpoint + phan le raw)"
+	}
+	log.Printf("so-chi-tiet-vat-lieu-hang-hoa: opening balance source = %s [bien moi truong SO_CHI_TIET_VAT_LIEU_OPENING_BALANCE_SOURCE]", source)
+	return &Service{conn: conn, useCheckpoint: useCheckpoint}
 }
 
 // driverRows - interface toi thieu de scanRow dung chung duoc, khong phu
@@ -69,7 +101,7 @@ func (s *Service) StreamSoChiTiet(ctx context.Context, p QueryParams, onRow func
 		return 0, err
 	}
 
-	sql := buildQuery(p)
+	sql := buildQuery(p, s.useCheckpoint)
 
 	start := time.Now()
 
@@ -99,7 +131,7 @@ func (s *Service) StreamSoChiTiet(ctx context.Context, p QueryParams, onRow func
 
 // buildQuery - tach rieng phan build SQL (truoc day nam thang trong
 // GetSoChiTiet) de dung chung cho ca 2 ham tren.
-func buildQuery(p QueryParams) string {
+func buildQuery(p QueryParams, useCheckpoint bool) string {
 	repoFilter := ""
 	if len(p.RepositoryIDs) > 0 {
 		repoFilter = fmt.Sprintf(
@@ -128,7 +160,13 @@ func buildQuery(p QueryParams) string {
 		)
 	}
 
+	openingBody := openingBalanceRawBody
+	if useCheckpoint {
+		openingBody = openingBalanceCheckpointBody
+	}
+
 	sql := queryTemplate
+	sql = strings.ReplaceAll(sql, "{{OPENING_BALANCE_BODY}}", openingBody)
 	sql = strings.ReplaceAll(sql, "{{TO_DATE}}", p.ToDate)
 	sql = strings.ReplaceAll(sql, "{{FROM_DATE}}", p.FromDate)
 	sql = strings.ReplaceAll(sql, "{{COMPANY_IDS}}", quoteJoin(p.CompanyIDs))

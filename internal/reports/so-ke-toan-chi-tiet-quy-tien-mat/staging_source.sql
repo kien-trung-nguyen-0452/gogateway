@@ -56,6 +56,13 @@
         gl.TypeID                 AS type_id,
         gl.TypeLedger             AS type_ledger,
         toDate(gl.PostedDate)     AS posted_date,
+        -- voucher_date = GL.Date (ngày chứng từ), KHÁC posted_date (ngày hạch
+        -- toán). Báo cáo quỹ hiển thị cả hai cột, và voucher_date nằm trong
+        -- ORDER BY (giữa posted_date và ca_type) nên thiếu nó là sai thứ tự
+        -- dòng → SoTon luỹ kế từng dòng sai.
+        --
+        -- so-chi-tiet-cac-tai-khoan không cần cột này nên bản staging của nó
+        -- không có — đừng copy thiếu sang đây.
         toDate(gl.Date)           AS voucher_date,
         gl.NoFBook                AS no_fbook,
         gl.NoMBook                AS no_mbook,
@@ -83,7 +90,14 @@
         gl.CustomFieldDetail4 AS custom_field_detail4,
         gl.CustomFieldDetail5 AS custom_field_detail5,
         gl.CompanyID   AS company_id,
-        gl.CurrencyID  AS currency_code,
+        -- currency_code lấy MỨC DÒNG (gld), KHÔNG lấy header (gl): fact
+        -- denormalize theo GLD.CurrencyID. Chứng từ ngoại tệ có dòng VND, ví dụ
+        -- PC454/20026 (header USD, dòng 1111 là VND, dòng 1112 là USD). Lấy
+        -- gl.CurrencyID thì dòng 1111 thành USD và bị {{CURRENCY_FILTER}} loại
+        -- khi xem sổ VND, trong khi fact và proc vẫn hiện. Đã đối chiếu năm 2026
+        -- công ty 2892F1AB…: 12.343/12.343 nhóm khớp gld.CurrencyID, còn
+        -- gl.CurrencyID lệch 108 nhóm.
+        gld.CurrencyID AS currency_code,
         gl.cluster_id  AS cluster_id,
         0              AS is_deleted
     FROM eb_staging.stg_general_ledger AS gl FINAL
@@ -91,6 +105,9 @@
         ON gl.DetailID = gld.DetailID AND gl.ReferenceID = gld.ReferenceID
     WHERE gl.__deleted = 0 AND gld.__deleted = 0
       AND gl.CompanyID IN CAST([{{COMPANY_IDS}}] AS Array(UUID))
+      -- gld.CompanyID: cột chọn lọc quan trọng nhất trong subquery này — xem
+      -- ghi chú "FIX THẬT" ở trên. Thiếu dòng này thì gld.Account một mình
+      -- không đủ chọn lọc (mã tài khoản dùng chung nhiều công ty).
       AND gld.CompanyID IN CAST([{{COMPANY_IDS}}] AS Array(UUID))
       AND gld.Account IN ({{ACCOUNT_NUMBERS}})
       AND toDate(gl.PostedDate) <= toDate('{{TO_DATE}}')

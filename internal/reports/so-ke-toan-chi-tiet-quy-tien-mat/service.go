@@ -115,6 +115,10 @@ type QueryParams struct {
 	GroupTheSameItem int
 	IsDependent      int
 	ClusterID        string
+
+	// isForeignCurrency: CurrencyID là ngoại tệ (khác đồng tiền hạch toán, khác
+	// 'TH'/rỗng). StreamSoQuy tự set — xem foreignAmountFilter().
+	isForeignCurrency bool
 }
 
 // =============================================================================
@@ -180,21 +184,45 @@ func (s *Service) StreamSoQuy(
 
 	// Loc theo LOAI TIEN cua tai khoan — khac han currencyFilter() von loc theo
 	// loai tien cua giao dich. Proc ap ca hai. Xem filterAccountsByCurrency().
-	accounts, err = s.filterAccountsByCurrency(ctx, p.PrimaryCompanyID, accounts, p)
+	//
+	// dataAccounts CHI dung de LOC SO LIEU (phat sinh + ton dau ky), KHONG dung
+	// de quyet dinh tai khoan nao len bao cao. Proc dung ton dau ky cho TUNG tai
+	// khoan trong @tblListAccount (dong 1024, 1042-1122) — danh sach CHUA loc
+	// loai tien; @tblListAccountByCurrency chi chan but toan o @tbDataGL /
+	// @tbDataGLDK. Nen chon USD/JPY thi tai khoan VND (vd 1113, 1111) van hien
+	// cap "So ton dau ky" + "Cong nhom" rong. Truoc day DWH cat luon tai khoan
+	// khoi `accounts` nen mat cac dong do.
+	dataAccounts, err := s.filterAccountsByCurrency(ctx, p.PrimaryCompanyID, accounts, p)
 	if err != nil {
 		return 0, fmt.Errorf("filter accounts by currency: %w", err)
 	}
-	if len(accounts) == 0 {
-		return 0, fmt.Errorf("khong con tai khoan nao sau khi loc theo loai tien")
+	// dataAccounts RONG la hop le (vd chon VND, chi tich tai khoan ngoai te
+	// 1112): khong truy van so lieu, walker.finish() van phat cap dong "So ton
+	// dau ky" + "Cong nhom" rong cho tung tai khoan — khop proc.
+	hasData := len(dataAccounts) > 0
+
+	// Nhanh ngoai te cua proc co dieu kien loc so tien rieng — xem
+	// foreignAmountFilter(). PHAI set truoc loadOpeningBalances va
+	// buildDetailQuery vi ca hai deu ap dieu kien nay.
+	if p.CurrencyID != "" && p.CurrencyID != "TH" {
+		if main, err := s.mainCurrency(ctx, p.PrimaryCompanyID); err == nil && main != "" {
+			p.isForeignCurrency = p.CurrencyID != main
+		}
 	}
 
-	sddkMap, err := s.loadOpeningBalances(ctx, companyIDs, accounts, p)
-	if err != nil {
-		return 0, fmt.Errorf("load opening balances: %w", err)
+	sddkMap := map[string]balance{}
+	if hasData {
+		sddkMap, err = s.loadOpeningBalances(ctx, companyIDs, dataAccounts, p)
+		if err != nil {
+			return 0, fmt.Errorf("load opening balances: %w", err)
+		}
 	}
 
 	// Cong don theo cay: tai khoan cha ("111") phai gom ton dau ky ca nhanh con.
 	// PHAI chay sau loadOpeningBalances va truoc khi dung sddkMap.
+	//
+	// Truyen `accounts` (day du) de moi tai khoan hien thi deu co entry; tai
+	// khoan bi loc loai tien khong co trong sddkMap goc nen tu dong = 0.
 	//
 	// descendants dung tiep cho walker: dong Cong nhom cua tai khoan cha lay
 	// SoTon = TONG SoTon cac dong Cong nhom con (xem walker.closeAccount).
@@ -203,6 +231,10 @@ func (s *Service) StreamSoQuy(
 		return 0, fmt.Errorf("rollup opening balances: %w", err)
 	}
 
+	// walker dung `accounts` DAY DU — flushEmptyBefore()/finish() phat cap dong
+	// rong cho tai khoan khong co phat sinh. dataAccounts giu nguyen thu tu
+	// tuong doi cua accounts (xem filterAccountsByCurrency) nen indexOf() trong
+	// SQL va con tro `next` cua walker van chay tien mot chieu.
 	w := &walker{
 		onRow:            onRow,
 		sddkMap:          sddkMap,
@@ -214,28 +246,10 @@ func (s *Service) StreamSoQuy(
 		typeShowCurrency: p.TypeShowCurrency,
 	}
 
-	sql := buildDetailQuery(companyIDs, accounts, p, noCol, s.useStaging)
-	rows, err := s.conn.Query(ctx, sql)
-	if err != nil {
-		return 0, fmt.Errorf("query error: %w", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		select {
-		case <-ctx.Done():
-			return 0, ctx.Err()
-		default:
+	if hasData {
+		if err := s.pushDetailRows(ctx, w, buildDetailQuery(companyIDs, dataAccounts, p, noCol, s.useStaging)); err != nil {
+			return 0, err
 		}
-
-		d, err := scanRow(rows)
-		if err != nil {
-			return 0, fmt.Errorf("scan error: %w", err)
-		}
-		w.push(d)
-	}
-	if err := rows.Err(); err != nil {
-		return 0, fmt.Errorf("row iteration error: %w", err)
 	}
 
 	if err := w.finish(); err != nil {
@@ -243,6 +257,33 @@ func (s *Service) StreamSoQuy(
 	}
 
 	return time.Since(start).Milliseconds(), nil
+}
+
+// pushDetailRows chay query phat sinh trong ky va day tung dong vao walker.
+func (s *Service) pushDetailRows(ctx context.Context, w *walker, sql string) error {
+	rows, err := s.conn.Query(ctx, sql)
+	if err != nil {
+		return fmt.Errorf("query error: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		d, err := scanRow(rows)
+		if err != nil {
+			return fmt.Errorf("scan error: %w", err)
+		}
+		w.push(d)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("row iteration error: %w", err)
+	}
+	return nil
 }
 
 // =============================================================================
@@ -672,6 +713,9 @@ func buildDetailQuery(
 		// Proc gộp theo AccountingObjectID; fact chỉ có code/name nên dùng code
 		// làm khoá thay thế. Hai đối tượng trùng mã sẽ bị gộp — hiếm, nhưng
 		// đáng biết.
+		// Chế độ gộp KHÔNG lọc ngày chứng từ — xem voucherDateFilter().
+		sql = strings.ReplaceAll(sql, "{{VOUCHER_DATE_FILTER}}", "")
+
 		sql = strings.ReplaceAll(sql, "{{GROUP_BY_CLAUSE}}",
 			"GROUP BY f.reference_id, f.account_number, f.account_corresponding, "+
 				"f.accounting_object_code, f.accounting_object_name, "+
@@ -694,7 +738,8 @@ func buildDetailQuery(
 		sql = strings.ReplaceAll(sql, "{{POSTED_DATE_EXPR}}", "f.posted_date")
 		sql = strings.ReplaceAll(sql, "{{NO_EXPR}}", "f."+noCol)
 		sql = strings.ReplaceAll(sql, "{{REASON_EXPR}}", "f.reason")
-		sql = strings.ReplaceAll(sql, "{{JOURNAL_MEMO_EXPR}}", "f.reason")
+		// journal_memo ("Diễn giải") lấy description mức DÒNG (GLD) ở chế độ chi tiết
+		sql = strings.ReplaceAll(sql, "{{JOURNAL_MEMO_EXPR}}", "f.description")
 		sql = strings.ReplaceAll(sql, "{{ACCOUNT_EXPR}}", "f.account_number")
 		sql = strings.ReplaceAll(sql, "{{ACCOUNT_CORRESPONDING_EXPR}}", "f.account_corresponding")
 
@@ -723,10 +768,36 @@ func buildDetailQuery(
 				fmt.Sprintf("f.custom_field_detail%d", i))
 		}
 
+		sql = strings.ReplaceAll(sql, "{{VOUCHER_DATE_FILTER}}", voucherDateFilter())
 		sql = strings.ReplaceAll(sql, "{{GROUP_BY_CLAUSE}}", "")
 	}
 
 	return applyCommonPlaceholders(sql, companyIDs, accounts, p, useStaging)
+}
+
+// voucherDateFilter - chế độ KHÔNG GỘP phải lọc thêm NGÀY CHỨNG TỪ trong kỳ
+// để khớp proc. Trả về chuỗi còn chứa {{FROM_DATE}}/{{TO_DATE}}, để
+// applyCommonPlaceholders() thay tiếp.
+//
+// Lý do (Proc_SO_KE_TOAN_CHI_TIET_QUY_TIEN_MAT, nhánh @GroupTheSameItem = 0):
+// proc nạp @tbDataGL bằng INSERT ... SELECT THEO VỊ TRÍ cột, trong khi thứ tự
+// SELECT là (GL.PostedDate, GL.Date) còn bảng khai báo là (Date, PostedDate).
+// Alias bị bỏ qua nên hai cột TRÁO NHAU. Vì vậy:
+//   - bước nạp lọc  GL.PostedDate between @FromDate and @ToDate
+//   - bước cuối lọc "PostedDate" between ... nhưng giá trị thật là GL.Date
+//
+// => sổ thường chỉ hiện chứng từ có CẢ ngày hạch toán LẪN ngày chứng từ trong
+// kỳ. Đã đối chiếu: PT030 (công ty 2892F1AB…, hạch toán 22/07/2026, chứng từ
+// 12/03/2025) bị proc loại khỏi kỳ 07/2026, DWH thì vẫn hiện.
+//
+// Chế độ gộp KHÔNG bị: proc gán bằng UPDATE ... SET PostedDate = GL.PostedDate,
+// Date = GL.Date theo TÊN cột, nên chỉ lọc ngày hạch toán.
+//
+// voucher_date Nullable: NULL so sánh ra NULL nên dòng bị loại — khớp proc
+// (NULL between ... cũng bị loại).
+func voucherDateFilter() string {
+	return "AND f.voucher_date >= toDate('{{FROM_DATE}}') " +
+		"AND f.voucher_date <= toDate('{{TO_DATE}}')"
 }
 
 func buildOpeningQuery(companyIDs, accounts []string, p QueryParams, useStaging bool) string {
@@ -770,6 +841,7 @@ func applyCommonPlaceholders(
 	sql = strings.ReplaceAll(sql, "{{ACCOUNT_NUMBERS}}", accList)
 	sql = strings.ReplaceAll(sql, "{{ACCOUNT_ORDER}}", accList)
 	sql = strings.ReplaceAll(sql, "{{CURRENCY_FILTER}}", currencyFilter(p.CurrencyID))
+	sql = strings.ReplaceAll(sql, "{{FOREIGN_AMOUNT_FILTER}}", foreignAmountFilter(p))
 	sql = strings.ReplaceAll(sql, "{{CLUSTER_FILTER}}", clusterFilter(p.ClusterID))
 	// query_opening.sql không có placeholder này; ReplaceAll bỏ qua nếu không
 	// tìm thấy nên gọi ở đây là an toàn.
@@ -904,14 +976,23 @@ func (s *Service) filterAccountsByCurrency(
 		wantForeign = 1
 	}
 
+	// Doc co ngoai te cua MOI tai khoan (khong loc theo co trong SQL) de phan
+	// biet hai truong hop:
+	//   - dim KHONG co dong nao cho cac tai khoan nay → dim loi/chua nap → tra
+	//     ve danh sach goc (tha thua con hon bao cao trong).
+	//   - dim CO du lieu nhung khong tai khoan nao dung loai tien → tra ve RONG.
+	//     Proc cung vay: chon VND ma chi tich 1112 (ngoai te) thi
+	//     @tblListAccountByCurrency khong chua 1112, bao cao chi con cap dong
+	//     "So ton dau ky" + "Cong nhom" rong. Truoc day hai truong hop gop chung
+	//     vao nhanh "tra ve danh sach goc" nen DWH van hien so lieu 1112.
 	sql := fmt.Sprintf(`
-		SELECT DISTINCT d.account_number
+		SELECT d.account_number, max(d.is_foreign_currency)
 		FROM eb_dwh.dim_account d
-		WHERE d.company_id           = '%s'
-		  AND d.is_current           = 1
-		  AND d.is_foreign_currency  = %d
-		  AND d.account_number IN (%s)`,
-		companyID, wantForeign, quoteJoin(accounts))
+		WHERE d.company_id     = '%s'
+		  AND d.is_current     = 1
+		  AND d.account_number IN (%s)
+		GROUP BY d.account_number`,
+		companyID, quoteJoin(accounts))
 
 	rows, err := s.conn.Query(ctx, sql)
 	if err != nil {
@@ -919,30 +1000,33 @@ func (s *Service) filterAccountsByCurrency(
 	}
 	defer rows.Close()
 
+	found := 0
 	keep := make(map[string]bool, len(accounts))
 	for rows.Next() {
 		var a string
-		if err := rows.Scan(&a); err != nil {
+		var foreign uint8
+		if err := rows.Scan(&a, &foreign); err != nil {
 			return nil, err
 		}
-		keep[a] = true
+		found++
+		if int(foreign) == wantForeign {
+			keep[a] = true
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	if len(keep) == 0 {
+	if found == 0 {
 		return accounts, nil
 	}
 
 	// Giu thu tu ban dau — {{ACCOUNT_ORDER}} dung indexOf() tren danh sach nay.
+	// Co the RONG — StreamSoQuy xu ly bang cach chi phat cap dong rong.
 	out := make([]string, 0, len(accounts))
 	for _, a := range accounts {
 		if keep[a] || a == "111" {
 			out = append(out, a)
 		}
-	}
-	if len(out) == 0 {
-		return accounts, nil
 	}
 	return out, nil
 }
@@ -1317,6 +1401,32 @@ func currencyFilter(currencyID string) string {
 		return ""
 	}
 	return fmt.Sprintf("AND f.currency_code = '%s'", currencyID)
+}
+
+// foreignAmountFilter tái hiện điều kiện lọc RIÊNG của nhánh ngoại tệ trong proc
+// (dòng 865-872 phát sinh, 894-899/925-930/951-958 tồn đầu kỳ):
+//
+//	(CASE WHEN @typeShowCurrency = 0 THEN DebitAmount  ELSE DebitAmountOriginal  END) > 0
+//	OR (CASE WHEN @typeShowCurrency = 0 THEN CreditAmount ELSE CreditAmountOriginal END) > 0
+//
+// Nhánh đồng tiền hạch toán / 'TH' KHÔNG có điều kiện này (chỉ lọc quy đổi <> 0).
+//
+// Hệ quả quan trọng: bút toán CHÊNH LỆCH TỶ GIÁ (quy đổi ≠ 0, nguyên tệ = 0 —
+// vd PC505/20026 dòng 1112/515) bị LOẠI khỏi cả tồn đầu kỳ QĐ. Thiếu điều kiện
+// này, tồn đầu kỳ 1112 USD ra -3.024.487.064 thay vì -5.193.303.368 như OLTP
+// (đã đối chiếu số liệu thật). Dùng `> 0` chứ không `!= 0` — bút toán âm cũng
+// bị proc loại.
+//
+// ── LUÔN XÉT NGUYÊN TỆ, KHÔNG THEO typeShowCurrency ─────────────────────────
+// Trên lý thuyết proc rẽ theo @typeShowCurrency, nhưng thực tế luồng OLTP ra
+// báo cáo GIỐNG HỆT NHAU dù người dùng chọn "Quy đổi" hay "Nguyên tệ" (đã kiểm
+// trên web), và khớp với nhánh ELSE (nguyên tệ). Nếu theo đúng tham số thì
+// chọn "Quy đổi" ở DWH sẽ ra -3.024.487.064, lệch OLTP. Vì vậy cố định nguyên tệ.
+func foreignAmountFilter(p QueryParams) string {
+	if !p.isForeignCurrency {
+		return ""
+	}
+	return "AND (coalesce(f.debit_amount_original, 0) > 0 OR coalesce(f.credit_amount_original, 0) > 0)"
 }
 
 func clusterFilter(clusterID string) string {
