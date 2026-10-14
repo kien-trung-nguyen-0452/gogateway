@@ -908,6 +908,10 @@ func queryCtx(ctx context.Context, staging bool) context.Context {
 	return clickhouse.Context(ctx, clickhouse.WithSettings(clickhouse.Settings{
 		"join_algorithm":    "grace_hash",
 		"max_bytes_in_join": stagingMaxBytesInJoin,
+		// Tắt nạp thống kê part để tối ưu thứ tự JOIN: mỗi truy vấn tốn ~1,5 s (4.230 part: QueryPlanOptimize 0,9 s +
+		// JoinOptimize 0,8 s + LoadedStatistics 0,7 s) bất kể lượng dữ liệu. Chỉ đổi kế hoạch, KHÔNG đổi kết quả (đo prod 14/10/2026:
+		// kết quả giống hệt 3/3 báo cáo; 1 ngày 2,1 -> 1,0 s; báo cáo nặng 809.884 dòng dòng đầu 34 -> 20 s).
+		"allow_statistics_optimize": 0,
 	}))
 }
 
@@ -917,8 +921,9 @@ func queryCtx(ctx context.Context, staging bool) context.Context {
 // chạy lại bằng queryCtx (grace_hash).
 func openingStagingCtx(ctx context.Context) context.Context {
 	return clickhouse.Context(ctx, clickhouse.WithSettings(clickhouse.Settings{
-		"join_algorithm":    "parallel_hash",
-		"max_bytes_in_join": openingMaxBytesInJoin,
+		"join_algorithm":            "parallel_hash",
+		"max_bytes_in_join":         openingMaxBytesInJoin,
+		"allow_statistics_optimize": 0, // xem queryCtx
 	}))
 }
 
