@@ -624,9 +624,9 @@ func buildDetailQuery(
 		// code/name) nên dùng accounting_object_id vừa khớp gốc vừa là khoá
 		// duy nhất cần đưa vào GROUP BY.
 		sql = strings.ReplaceAll(sql, "{{AO_CODE_EXPR}}",
-			"dictGetOrDefault('eb.dict_accounting_object', 'accounting_object_code', f.accounting_object_id, '')")
+			"any(ao.code)")
 		sql = strings.ReplaceAll(sql, "{{AO_NAME_EXPR}}",
-			"dictGetOrDefault('eb.dict_accounting_object', 'accounting_object_name', f.accounting_object_id, '')")
+			"any(ao.name)")
 
 		for i := 1; i <= 5; i++ {
 			// custom_field NẰM TRONG GROUP BY của proc gốc.
@@ -696,9 +696,9 @@ func buildDetailQuery(
 		sql = strings.ReplaceAll(sql, "{{IS_UNREASONABLE_COST_EXPR}}", "f.is_unreasonable_cost")
 		// Xem ghi chú ở nhánh GroupSameItem==1 phía trên.
 		sql = strings.ReplaceAll(sql, "{{AO_CODE_EXPR}}",
-			"dictGetOrDefault('eb.dict_accounting_object', 'accounting_object_code', f.accounting_object_id, '')")
+			"ao.code")
 		sql = strings.ReplaceAll(sql, "{{AO_NAME_EXPR}}",
-			"dictGetOrDefault('eb.dict_accounting_object', 'accounting_object_name', f.accounting_object_id, '')")
+			"ao.name")
 
 		for i := 1; i <= 5; i++ {
 			sql = strings.ReplaceAll(sql, fmt.Sprintf("{{CF%d}}", i),
