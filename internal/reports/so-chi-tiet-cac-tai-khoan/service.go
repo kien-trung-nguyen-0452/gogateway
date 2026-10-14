@@ -20,6 +20,7 @@ package so_chi_tiet_tai_khoan
 import (
 	"context"
 	_ "embed"
+	"errors"
 	"fmt"
 	"log"
 	"regexp"
@@ -28,6 +29,7 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 )
@@ -189,6 +191,20 @@ func (s *Service) StreamSoChiTiet(
 		}
 	}
 
+	// Truy vấn CHI TIẾT chỉ phụ thuộc companyIDs/accounts/typeLedger (đã có) chứ
+	// không phụ thuộc số dư đầu kỳ, nên khởi chạy ngay song song với hai tra cứu
+	// bên dưới; thời gian tổng ≈ max(đầu kỳ, chi tiết) thay vì cộng dồn. Dòng
+	// chi tiết chỉ được ĐỌC sau khi số dư đầu kỳ xong (walker cần sddkMap).
+	staging := s.stagingFor(p)
+	detailSQL := buildDetailQuery(companyIDs, accounts, p, typeLedger, noCol, staging)
+	detailCtx, cancelDetail := context.WithCancel(ctx)
+	defer cancelDetail()
+	detailCh := make(chan detailResult, 1)
+	go func() {
+		r, e := s.conn.Query(queryCtx(detailCtx, staging), detailSQL)
+		detailCh <- detailResult{rows: r, err: e}
+	}()
+
 	// resolveAccountInfo và loadOpeningBalances cũng độc lập với nhau (chỉ
 	// cùng phụ thuộc companyIDs/accounts đã có ở trên) — chạy song song.
 	var (
@@ -209,9 +225,13 @@ func (s *Service) StreamSoChiTiet(
 	}()
 	wgLookup.Wait()
 	if infoErr != nil {
+		cancelDetail()
+		drainDetail(detailCh)
 		return 0, fmt.Errorf("resolve account info: %w", infoErr)
 	}
 	if balErr != nil {
+		cancelDetail()
+		drainDetail(detailCh)
 		return 0, fmt.Errorf("load opening balances: %w", balErr)
 	}
 
@@ -224,12 +244,11 @@ func (s *Service) StreamSoChiTiet(
 		seen:     make(map[string]bool, len(accounts)),
 	}
 
-	staging := s.stagingFor(p)
-	sql := buildDetailQuery(companyIDs, accounts, p, typeLedger, noCol, staging)
-	rows, err := s.conn.Query(queryCtx(ctx, staging), sql)
-	if err != nil {
-		return 0, fmt.Errorf("query error: %w", err)
+	detail := <-detailCh
+	if detail.err != nil {
+		return 0, fmt.Errorf("query error: %w", detail.err)
 	}
+	rows := detail.rows
 	defer rows.Close()
 
 	for rows.Next() {
@@ -702,18 +721,18 @@ func buildDetailQuery(
 		sql = strings.ReplaceAll(sql, "{{ORDER_TAIL}}", orderTailDetail)
 	}
 
-	return applyCommonPlaceholders(sql, companyIDs, accounts, p, typeLedger, useStaging)
+	return applyCommonPlaceholders(sql, companyIDs, accounts, p, typeLedger, useStaging, true)
 }
 
 func buildOpeningQuery(
 	companyIDs, accounts []string, p QueryParams, typeLedger int, useStaging bool,
 ) string {
-	return applyCommonPlaceholders(openingTemplate, companyIDs, accounts, p, typeLedger, useStaging)
+	return applyCommonPlaceholders(openingTemplate, companyIDs, accounts, p, typeLedger, useStaging, false)
 }
 
 func applyCommonPlaceholders(
 	sql string, companyIDs, accounts []string, p QueryParams, typeLedger int,
-	useStaging bool,
+	useStaging bool, pushFromBound bool,
 ) string {
 	accList := quoteJoin(accounts)
 
@@ -722,6 +741,18 @@ func applyCommonPlaceholders(
 		glSource = stagingSourceExpr
 	}
 	sql = strings.ReplaceAll(sql, "{{GL_SOURCE}}", glSource)
+
+	// Cận dưới ngày của nhánh staging: đẩy CHÍNH vị từ `f.posted_date >= FROM_DATE`
+	// của query.sql (f.posted_date = toDate(gl.PostedDate)) vào truy vấn con trước
+	// JOIN, để cắt phân vùng/granule thay vì quét cả lịch sử công ty rồi mới lọc.
+	// INNER JOIN + vị từ chỉ trên cột gl => kết quả tương đương. CHỈ truy vấn
+	// chi tiết (pushFromBound=true); số dư đầu kỳ cần toàn bộ lịch sử trước
+	// FROM_DATE nên KHÔNG được đẩy. Nhánh fact không có placeholder này.
+	fromBound := ""
+	if useStaging && pushFromBound {
+		fromBound = "AND toDate(gl.PostedDate) >= toDate('" + p.FromDate + "')"
+	}
+	sql = strings.ReplaceAll(sql, "{{STAGING_FROM_BOUND}}", fromBound)
 
 	sql = strings.ReplaceAll(sql, "{{COMPANY_IDS}}", quoteJoin(companyIDs))
 	sql = strings.ReplaceAll(sql, "{{FROM_DATE}}", p.FromDate)
@@ -880,6 +911,19 @@ func queryCtx(ctx context.Context, staging bool) context.Context {
 	}))
 }
 
+// openingStagingCtx: setting riêng cho truy vấn SỐ DƯ ĐẦU KỲ nhánh staging.
+// parallel_hash + trần 4 GB (RAM node đã được cấp thêm, chỉ mở cho một số công
+// ty nên chấp nhận tốn RAM hơn để nhanh). Vượt trần => lỗi 191, loadOpeningBalances
+// chạy lại bằng queryCtx (grace_hash).
+func openingStagingCtx(ctx context.Context) context.Context {
+	return clickhouse.Context(ctx, clickhouse.WithSettings(clickhouse.Settings{
+		"join_algorithm":    "parallel_hash",
+		"max_bytes_in_join": openingMaxBytesInJoin,
+	}))
+}
+
+const openingMaxBytesInJoin = 4 << 30
+
 // stagingMaxBytesInJoin: ngưỡng RAM (byte) cho hash table JOIN trước khi
 // grace_hash chia bucket/spill. 1GB để chừa chỗ cho các query song song.
 const stagingMaxBytesInJoin = 1 << 30
@@ -901,11 +945,52 @@ const (
 		", no ASC NULLS FIRST, order_priority ASC NULLS FIRST, reference_id, key_id"
 )
 
+// detailResult: kết quả khởi chạy truy vấn chi tiết ở goroutine riêng.
+type detailResult struct {
+	rows driver.Rows
+	err  error
+}
+
+// drainDetail đợi truy vấn chi tiết (đã bị hủy context) trả về rồi đóng rows, tránh rò kết nối khi thoát sớm.
+func drainDetail(ch <-chan detailResult) {
+	if r := <-ch; r.rows != nil {
+		_ = r.rows.Close()
+	}
+}
+
+// Mã lỗi ClickHouse khi bảng hash của JOIN vượt giới hạn / hết RAM truy vấn.
+const (
+	chErrSetSizeLimitExceeded = 191
+	chErrMemoryLimitExceeded  = 241
+)
+
+func isJoinMemoryError(err error) bool {
+	var ex *clickhouse.Exception
+	return errors.As(err, &ex) && (ex.Code == chErrSetSizeLimitExceeded || ex.Code == chErrMemoryLimitExceeded)
+}
+
 func (s *Service) loadOpeningBalances(
 	ctx context.Context, companyIDs, accounts []string, p QueryParams, typeLedger int,
 ) (map[string]balance, error) {
 	staging := s.stagingFor(p)
-	rows, err := s.conn.Query(queryCtx(ctx, staging), buildOpeningQuery(companyIDs, accounts, p, typeLedger, staging))
+	sql := buildOpeningQuery(companyIDs, accounts, p, typeLedger, staging)
+	if !staging {
+		return s.runOpening(queryCtx(ctx, false), sql)
+	}
+	// Nhánh staging: parallel_hash nhanh hơn grace_hash ~3 lần ở truy vấn đầu kỳ
+	// (đo prod 14/10/2026: 20 s → ~4-6 s, kết quả giống hệt) nhưng KHÔNG spill
+	// ra đĩa: vượt max_bytes_in_join thì lỗi. Nên gặp lỗi bộ nhớ/giới hạn JOIN
+	// thì chạy lại đúng câu đó bằng grace_hash (chậm nhưng không bao giờ lỗi).
+	out, err := s.runOpening(openingStagingCtx(ctx), sql)
+	if err != nil && isJoinMemoryError(err) {
+		log.Printf("so-chi-tiet-tai-khoan: parallel_hash loi bo nho (%v), chay lai bang grace_hash", err)
+		return s.runOpening(queryCtx(ctx, true), sql)
+	}
+	return out, err
+}
+
+func (s *Service) runOpening(ctx context.Context, sql string) (map[string]balance, error) {
+	rows, err := s.conn.Query(ctx, sql)
 	if err != nil {
 		return nil, err
 	}

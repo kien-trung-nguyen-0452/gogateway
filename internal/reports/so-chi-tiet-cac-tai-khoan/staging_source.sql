@@ -96,5 +96,6 @@
       AND gld.CompanyID IN CAST([{{COMPANY_IDS}}] AS Array(UUID))
       AND gld.Account IN ({{ACCOUNT_NUMBERS}})
       AND toDate(gl.PostedDate) <= toDate('{{TO_DATE}}')
+      {{STAGING_FROM_BOUND}}
       AND (gl.TypeLedger = {{TYPE_LEDGER}} OR gl.TypeLedger = 2)
 ) AS f
