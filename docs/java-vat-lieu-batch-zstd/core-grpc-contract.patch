@@ -1,0 +1,27 @@
+diff --git a/src/main/proto/so_chi_tiet_vat_lieu.proto b/src/main/proto/so_chi_tiet_vat_lieu.proto
+index 6780458..c629e85 100644
+--- a/src/main/proto/so_chi_tiet_vat_lieu.proto
++++ b/src/main/proto/so_chi_tiet_vat_lieu.proto
+@@ -20,6 +20,12 @@ option java_outer_classname = "SoChiTietVatLieuProto";
+ // ============================================================================
+ service SoChiTietVatLieuService {
+     rpc GetSoChiTietVatLieu (SoChiTietVatLieuRequest) returns (stream SoChiTietVatLieuRow);
++
++    // Cung noi dung voi GetSoChiTietVatLieu nhung moi message chua NHIEU dong
++    // (SoChiTietVatLieuBatch). Nen zstd chi co hieu qua khi nen theo lo, nen
++    // tung dong rieng le chi duoc ~1,15x. Server nen zstd neu client bao ho tro
++    // (grpc-accept-encoding: zstd), nguoc lai gui khong nen. RPC cu giu nguyen.
++    rpc GetSoChiTietVatLieuBatch (SoChiTietVatLieuRequest) returns (stream SoChiTietVatLieuBatch);
+ }
+ 
+ message SoChiTietVatLieuRequest {
+@@ -117,3 +123,9 @@ message SoChiTietVatLieuRow {
+     // hoac mat truong, va KHONG co loi nao duoc bao luc build.
+     string main_unit_name = 51;
+ }
++
++// Mot lo dong lien tiep cua bao cao, GIU NGUYEN THU TU nhu stream tung dong.
++// Lo cuoi co the it hon kich thuoc lo.
++message SoChiTietVatLieuBatch {
++    repeated SoChiTietVatLieuRow rows = 1;
++}

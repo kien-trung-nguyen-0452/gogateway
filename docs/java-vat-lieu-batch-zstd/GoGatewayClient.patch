@@ -1,0 +1,56 @@
+--- a/src/main/java/vn/softdreams/ebweb/service/reportclickhouse/gateway/GoGatewayClient.java
++++ b/src/main/java/vn/softdreams/ebweb/service/reportclickhouse/gateway/GoGatewayClient.java
+@@ -4,8 +4,10 @@
+ import net.devh.boot.grpc.client.inject.GrpcClient;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
++import org.springframework.beans.factory.annotation.Value;
+ import org.springframework.stereotype.Component;
+ 
++import vn.softdream.reports.sochitietvatlieu.SoChiTietVatLieuBatch;
+ import vn.softdream.reports.sochitietvatlieu.SoChiTietVatLieuRequest;
+ import vn.softdream.reports.sochitietvatlieu.SoChiTietVatLieuRow;
+ import vn.softdream.reports.sochitietvatlieu.SoChiTietVatLieuServiceGrpc;
+@@ -34,6 +36,15 @@
+     @GrpcClient("go-gateway")
+     private SoChiTietVatLieuServiceGrpc.SoChiTietVatLieuServiceBlockingStub stub;
+ 
++    /**
++     * true = goi RPC GetSoChiTietVatLieuBatch (moi message la mot lo dong, nen
++     * zstd) thay vi GetSoChiTietVatLieu (moi message mot dong, khong nen). Cung
++     * noi dung va thu tu dong. Mac dinh tat: phai co go-gateway da co RPC batch
++     * va contract grpc-contract moi. Bat bang go-gateway.grpc.batch=true.
++     */
++    @Value("${go-gateway.grpc.batch:false}")
++    private boolean batch;
++
+     private final SoChiTietVatLieuGoRequestService soChiTietVatLieuGoRequestService;
+ 
+     public GoGatewayClient(SoChiTietVatLieuGoRequestService soChiTietVatLieuGoRequestService) {
+@@ -72,10 +83,22 @@
+         long count = 0;
+         long startNanos = System.nanoTime();
+         try {
+-            Iterator<SoChiTietVatLieuRow> stream = stub.getSoChiTietVatLieu(protoRequest);
+-            while (stream.hasNext()) {
+-                onRow.accept(toGoRow(stream.next()));
+-                count++;
++            if (batch) {
++                // Moi message la mot lo dong lien nhau, dung thu tu nhu stream
++                // tung dong; onRow van nhan tung dong mot.
++                Iterator<SoChiTietVatLieuBatch> stream = stub.getSoChiTietVatLieuBatch(protoRequest);
++                while (stream.hasNext()) {
++                    for (SoChiTietVatLieuRow row : stream.next().getRowsList()) {
++                        onRow.accept(toGoRow(row));
++                        count++;
++                    }
++                }
++            } else {
++                Iterator<SoChiTietVatLieuRow> stream = stub.getSoChiTietVatLieu(protoRequest);
++                while (stream.hasNext()) {
++                    onRow.accept(toGoRow(stream.next()));
++                    count++;
++                }
+             }
+             long elapsedMs = (System.nanoTime() - startNanos) / 1_000_000L;
+             log.info(

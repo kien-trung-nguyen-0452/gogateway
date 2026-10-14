@@ -3,8 +3,16 @@ package so_chi_tiet_vat_lieu_hang_hoa
 import (
 	"fmt"
 
+	"google.golang.org/grpc"
+
+	"softdream.vn/go-gateway/internal/grpczstd"
 	"softdream.vn/go-gateway/internal/so_chi_tiet_vat_lieu_hang_hoa/pb"
 )
+
+// batchSize la so dong toi da trong 1 message cua GetSoChiTietVatLieuBatch. Do
+// tren du lieu that (1 trieu dong): tu 500 tro len ty le nen zstd va thoi gian
+// gan nhu khong doi, duoi 250 dong nen kem di; xem so-chi-tiet-cac-tai-khoan.
+const batchSize = 600
 
 // GRPCServer - implement pb.SoChiTietVatLieuServiceServer (sinh tu
 // proto/sochitietvatlieu.proto - xem proto/generate.sh de sinh code, KHONG
@@ -23,7 +31,52 @@ func NewGRPCServer(service *Service) *GRPCServer {
 // stream.Send() NGAY LAP TUC - khong bao gio giu ca lo du lieu trong RAM
 // cung luc. Day la diem mau chot giai quyet treo voi bao cao 500k+ dong.
 func (g *GRPCServer) GetSoChiTietVatLieu(req *pb.SoChiTietVatLieuRequest, stream pb.SoChiTietVatLieuService_GetSoChiTietVatLieuServer) error {
-	params := QueryParams{
+	params := paramsFromRequest(req)
+
+	_, err := g.service.StreamSoChiTiet(stream.Context(), params, func(row Row) error {
+		return stream.Send(rowToProto(row))
+	})
+	if err != nil {
+		return fmt.Errorf("loi stream so chi tiet vat lieu: %w", err)
+	}
+	return nil
+}
+
+// GetSoChiTietVatLieuBatch - cung noi dung voi GetSoChiTietVatLieu nhung gom
+// batchSize dong vao 1 message va nen zstd (neu client ho tro). Thu tu dong giu
+// nguyen; lo cuoi duoc flush sau khi StreamSoChiTiet xong.
+func (g *GRPCServer) GetSoChiTietVatLieuBatch(req *pb.SoChiTietVatLieuRequest, stream grpc.ServerStreamingServer[pb.SoChiTietVatLieuBatch]) error {
+	// Loi o day nghia la client khong khai bao ho tro zstd: van gui duoc,
+	// chi la khong nen.
+	_ = grpc.SetSendCompressor(stream.Context(), grpczstd.Name)
+
+	// Send ma hoa message truoc khi tra ve nen tai su dung duoc buffer.
+	batch := &pb.SoChiTietVatLieuBatch{Rows: make([]*pb.SoChiTietVatLieuRow, 0, batchSize)}
+	flush := func() error {
+		if len(batch.Rows) == 0 {
+			return nil
+		}
+		err := stream.Send(batch)
+		clear(batch.Rows)
+		batch.Rows = batch.Rows[:0]
+		return err
+	}
+
+	_, err := g.service.StreamSoChiTiet(stream.Context(), paramsFromRequest(req), func(row Row) error {
+		batch.Rows = append(batch.Rows, rowToProto(row))
+		if len(batch.Rows) >= batchSize {
+			return flush()
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("loi stream so chi tiet vat lieu (batch): %w", err)
+	}
+	return flush()
+}
+
+func paramsFromRequest(req *pb.SoChiTietVatLieuRequest) QueryParams {
+	return QueryParams{
 		CompanyIDs:               req.GetCompanyIds(),
 		PrimaryCompanyID:         req.GetPrimaryCompanyId(),
 		RepositoryIDs:            req.GetRepositoryIds(),
@@ -43,14 +96,6 @@ func (g *GRPCServer) GetSoChiTietVatLieu(req *pb.SoChiTietVatLieuRequest, stream
 		// lan ra: cot DVT hien don vi goc, khong he co loi nao duoc bao.
 		UnitType: int(req.GetUnitType()),
 	}
-
-	_, err := g.service.StreamSoChiTiet(stream.Context(), params, func(row Row) error {
-		return stream.Send(rowToProto(row))
-	})
-	if err != nil {
-		return fmt.Errorf("loi stream so chi tiet vat lieu: %w", err)
-	}
-	return nil
 }
 
 // rowToProto - xuat so lieu DANG STRING (khong dung float/double) de KHONG
