@@ -1,4 +1,13 @@
 WITH
+    -- ledger_scope: khu trung THU CONG thay cho `FROM eb.repository_ledger FINAL` (cung ket qua, doc it hon).
+    -- Tuong duong FINAL cua ReplacingMergeTree(__source_ts_ms): moi nhom khoa sap xep
+    -- (CompanyID, RepositoryID, MaterialGoodsID, PostedDate, ReferenceID, DetailID, ID) giu
+    -- DONG CO __source_ts_ms LON NHAT; moi cot lay tu cung 1 ban ghi (argMax tren tuple).
+    --   * Chi loc SOM theo cot KHOA (cong ty, kho, vat tu, ngay) - an toan vi moi dong trong nhom
+    --     co cung gia tri khoa. Cot khong phai khoa (TypeLedger, __deleted, TypeID) PHAI loc SAU argMax.
+    --   * optimize_aggregation_in_order = 0 la BAT BUOC: mac dinh (1) tren prod tra KET QUA SAI (0 dong)
+    --     khi GROUP BY theo khoa sap xep.
+    --   * Thu tu cot trong tuple PHAI khop voi latest.N o SELECT giua.
     ledger_scope AS
         (
             SELECT
@@ -11,12 +20,58 @@ WITH
     OrderPriority,
     BudgetItemID, CostSetID, StatisticsCodeID, ExpenseItemID,
     ContractID, DepartmentID, AccountingObjectID
-FROM eb.repository_ledger final
-WHERE PostedDate <= toDateTime('{{TO_DATE}}')
-  AND CompanyID IN CAST([{{COMPANY_IDS}}] AS Array(UUID))
-    {{REPOSITORY_FILTER}}
-    {{MATERIAL_GOODS_FILTER}}
-  AND (TypeLedger = 0 OR TypeLedger = 2)
+FROM
+(
+    SELECT
+        ID, ReferenceID, DetailID, CompanyID, RepositoryID, MaterialGoodsID, PostedDate,
+        latest.1  AS TypeID,
+        latest.2  AS TypeLedger,
+        latest.3  AS UnitID,
+        latest.4  AS UnitPrice,
+        latest.5  AS IWQuantity,
+        latest.6  AS OWQuantity,
+        latest.7  AS IWAmount,
+        latest.8  AS OWAmount,
+        latest.9  AS MainUnitID,
+        latest.10 AS MainUnitPrice,
+        latest.11 AS MainIWQuantity,
+        latest.12 AS MainOWQuantity,
+        latest.13 AS MainConvertRate,
+        latest.14 AS Reason,
+        latest.15 AS Date,
+        latest.16 AS NoFBook,
+        latest.17 AS NoMBook,
+        latest.18 AS AccountCorresponding,
+        latest.19 AS OrderPriority,
+        latest.20 AS BudgetItemID,
+        latest.21 AS CostSetID,
+        latest.22 AS StatisticsCodeID,
+        latest.23 AS ExpenseItemID,
+        latest.24 AS ContractID,
+        latest.25 AS DepartmentID,
+        latest.26 AS AccountingObjectID,
+        latest.27 AS __deleted
+    FROM
+    (
+        SELECT
+            CompanyID, RepositoryID, MaterialGoodsID, PostedDate, ReferenceID, DetailID, ID,
+            argMax(
+                tuple(TypeID, TypeLedger, UnitID, UnitPrice, IWQuantity, OWQuantity, IWAmount, OWAmount,
+                      MainUnitID, MainUnitPrice, MainIWQuantity, MainOWQuantity, MainConvertRate,
+                      Reason, Date, NoFBook, NoMBook, AccountCorresponding, OrderPriority,
+                      BudgetItemID, CostSetID, StatisticsCodeID, ExpenseItemID, ContractID,
+                      DepartmentID, AccountingObjectID, __deleted),
+                __source_ts_ms) AS latest
+        FROM eb.repository_ledger
+        WHERE PostedDate <= toDateTime('{{TO_DATE}}')
+          AND CompanyID IN CAST([{{COMPANY_IDS}}] AS Array(UUID))
+            {{REPOSITORY_FILTER}}
+            {{MATERIAL_GOODS_FILTER}}
+        GROUP BY CompanyID, RepositoryID, MaterialGoodsID, PostedDate, ReferenceID, DetailID, ID
+        SETTINGS optimize_aggregation_in_order = 0
+    )
+)
+WHERE (TypeLedger = 0 OR TypeLedger = 2)
   AND __deleted = 0
   AND dictHas('eb.dict_material_goods', MaterialGoodsID)
   AND (
