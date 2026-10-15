@@ -1,27 +1,4 @@
 WITH
-    mg AS
-        (
-            SELECT id,
-                   argMax(ifNull(material_goods_code, ''), __source_ts_ms) AS code,
-                   argMax(ifNull(material_goods_name, ''), __source_ts_ms) AS name,
-                   argMax(ifNull(unit_id, toUUID('00000000-0000-0000-0000-000000000000')), __source_ts_ms) AS unit_id
-            FROM eb.material_goods
-            WHERE company_id IN CAST([{{COMPANY_IDS}}] AS Array(UUID))
-            GROUP BY id
-            HAVING argMax(__deleted, __source_ts_ms) = 0
-        ),
-    ao AS
-        (
-            SELECT id,
-                   argMax(ifNull(accounting_object_code, ''), __source_ts_ms) AS code,
-                   argMax(ifNull(accounting_object_name, ''), __source_ts_ms) AS name,
-                   argMax(ifNull(accounting_object_address, ''), __source_ts_ms) AS address,
-                   argMax(ifNull(tax_code, ''), __source_ts_ms) AS tax_code
-            FROM eb.accounting_object
-            WHERE company_id IN CAST([{{COMPANY_IDS}}] AS Array(UUID))
-            GROUP BY id
-            HAVING argMax(__deleted, __source_ts_ms) = 0
-        ),
     ledger_scope AS
         (
             SELECT
@@ -41,7 +18,7 @@ WHERE PostedDate <= toDateTime('{{TO_DATE}}')
     {{MATERIAL_GOODS_FILTER}}
   AND (TypeLedger = 0 OR TypeLedger = 2)
   AND __deleted = 0
-  AND MaterialGoodsID IN (SELECT id FROM mg)
+  AND dictHas('eb.dict_material_goods', MaterialGoodsID)
   AND (
     TypeID NOT IN (420, 421, 422)
    OR {{IS_COMPANY_BUSINESS_TYPE_GAS}} <> 1
@@ -79,7 +56,7 @@ SELECT
     CAST(NULL AS Nullable(DateTime)) AS RefDate,
     MaxPreDate AS InRefOrder,
     '' AS RefNo, 'Số dư đầu kỳ' AS Reason, '' AS AccountCorresponding,
-    mg.unit_id AS EffectiveUnitID,
+    dictGetOrDefault('eb.dict_material_goods', 'unit_id', MaterialGoodsID, toUUID('00000000-0000-0000-0000-000000000000')) AS EffectiveUnitID,
     toDecimal64(1, 10) AS ConvertRate,
     NetQuantity AS MainQuantity,
     MaxMainUnitPrice AS MainUnitPrice,
@@ -95,8 +72,7 @@ SELECT
     toUUID('00000000-0000-0000-0000-000000000000') AS StatisticsCodeID,
     toUUID('00000000-0000-0000-0000-000000000000') AS DepartmentID,
     NetQuantity AS NetQuantity, NetAmount AS NetAmount
-FROM opening_balance AS ob
-LEFT JOIN mg ON mg.id = ob.MaterialGoodsID
+FROM opening_balance
 
 UNION ALL
 
@@ -183,8 +159,8 @@ SELECT
     dictGetOrDefault('eb.dict_repository', 'repository_code', RepositoryID, '') AS RepositoryCode,
     dictGetOrDefault('eb.dict_repository', 'repository_name', RepositoryID, '') AS RepositoryName,
     MaterialGoodsID,
-    mg.code AS MaterialGoodsCode,
-    mg.name AS MaterialGoodsName,
+    dictGetOrDefault('eb.dict_material_goods', 'material_goods_code', MaterialGoodsID, '') AS MaterialGoodsCode,
+    dictGetOrDefault('eb.dict_material_goods', 'material_goods_name', MaterialGoodsID, '') AS MaterialGoodsName,
     ReferenceID, DetailID, TypeID,
     PostedDate, RefDate, RefNo, Reason, AccountCorresponding,
 
@@ -200,10 +176,10 @@ SELECT
     ClosingQuantity * quantity_factor AS ClosingQuantity, ClosingAmount,
 
     AccountingObjectID,
-    if(Reason = 'Số dư đầu kỳ', NULL, ao.code) AS AccountingObjectCode,
-    if(Reason = 'Số dư đầu kỳ', NULL, ao.name) AS AccountingObjectName,
-    if(Reason = 'Số dư đầu kỳ', NULL, ao.address) AS AccountingObjectAddress,
-    if(Reason = 'Số dư đầu kỳ', NULL, ao.tax_code) AS TaxCode,
+    if(Reason = 'Số dư đầu kỳ', NULL, dictGetOrDefault('eb.dict_accounting_object', 'accounting_object_code', AccountingObjectID, '')) AS AccountingObjectCode,
+    if(Reason = 'Số dư đầu kỳ', NULL, dictGetOrDefault('eb.dict_accounting_object', 'accounting_object_name', AccountingObjectID, '')) AS AccountingObjectName,
+    if(Reason = 'Số dư đầu kỳ', NULL, dictGetOrDefault('eb.dict_accounting_object', 'accounting_object_address', AccountingObjectID, '')) AS AccountingObjectAddress,
+    if(Reason = 'Số dư đầu kỳ', NULL, dictGetOrDefault('eb.dict_accounting_object', 'tax_code', AccountingObjectID, '')) AS TaxCode,
 
     ExpenseItemID,
     if(Reason = 'Số dư đầu kỳ', NULL, dictGetOrDefault('eb.dict_expense_item', 'expense_item_code', ExpenseItemID, '')) AS ExpenseItemCode,
@@ -237,13 +213,11 @@ SELECT
     -- giua se lam lech toan bo cac cot phia sau.
     dictGetOrDefault('eb.dict_unit', 'unit_name', EffectiveUnitID, '') AS MainUnitName
 
-FROM unit_converted AS uc
-LEFT JOIN mg ON mg.id = uc.MaterialGoodsID
-LEFT JOIN ao ON ao.id = uc.AccountingObjectID
+FROM unit_converted
     {{ACCOUNT_HAS_DATA_FILTER}}
 ORDER BY
     RepositoryCode, MaterialGoodsCode,
     PostedDate,
     /*replaceRegexpAll(RefNo, '[^a-zA-Z0-9]', ''),*/
     RefNo, OrderPriority, ReferenceID, DetailID
-    SETTINGS enable_optimize_predicate_expression = 1, distributed_product_mode = 'local';
+    SETTINGS enable_optimize_predicate_expression = 0;
