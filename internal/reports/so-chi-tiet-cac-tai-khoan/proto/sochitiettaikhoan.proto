@@ -111,4 +111,10 @@ message SoChiTietTaiKhoanRow {
   // Chuoi "154 - Chi phi SXKD do dang". Frontend dung cho dong tieu de nhom
   // khi nguoi dung chon xem "Tat ca" tai khoan.
   string account_name_with_account_number = 31;
+
+  // Tong so dong bao cao se gui (ke ca dong SDDK/Cong/SDCK/Tong cong).
+  // > 0 nghia la day la message DAU TRANG (header), KHONG phai dong du lieu:
+  // Go gui dung 1 message nhu vay truoc dong dau tien, chi set field nay.
+  // Client phai bo qua message nay khi dung danh sach dong.
+  int64 total_rows = 32;
 }
