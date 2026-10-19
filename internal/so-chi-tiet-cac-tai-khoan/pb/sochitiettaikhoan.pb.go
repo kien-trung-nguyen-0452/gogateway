@@ -197,8 +197,13 @@ type SoChiTietTaiKhoanRow struct {
 	// Chuoi "154 - Chi phi SXKD do dang". Frontend dung cho dong tieu de nhom
 	// khi nguoi dung chon xem "Tat ca" tai khoan.
 	AccountNameWithAccountNumber string `protobuf:"bytes,31,opt,name=account_name_with_account_number,json=accountNameWithAccountNumber,proto3" json:"account_name_with_account_number,omitempty"`
-	unknownFields                protoimpl.UnknownFields
-	sizeCache                    protoimpl.SizeCache
+	// Tong so dong bao cao se gui (ke ca dong SDDK/Cong/SDCK/Tong cong).
+	// > 0 nghia la day la message DAU TRANG (header), KHONG phai dong du lieu:
+	// Go gui dung 1 message nhu vay truoc dong dau tien, chi set field nay.
+	// Client phai bo qua message nay khi dung danh sach dong.
+	TotalRows     int64 `protobuf:"varint,32,opt,name=total_rows,json=totalRows,proto3" json:"total_rows,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SoChiTietTaiKhoanRow) Reset() {
@@ -448,6 +453,13 @@ func (x *SoChiTietTaiKhoanRow) GetAccountNameWithAccountNumber() string {
 	return ""
 }
 
+func (x *SoChiTietTaiKhoanRow) GetTotalRows() int64 {
+	if x != nil {
+		return x.TotalRows
+	}
+	return 0
+}
+
 var File_sochitiettaikhoan_proto protoreflect.FileDescriptor
 
 const file_sochitiettaikhoan_proto_rawDesc = "" +
@@ -468,7 +480,7 @@ const file_sochitiettaikhoan_proto_rawDesc = "" +
 	"\x0eis_parent_node\x18\n" +
 	" \x01(\bR\fisParentNode\x12\x1d\n" +
 	"\n" +
-	"cluster_id\x18\v \x01(\tR\tclusterId\"\xa2\n" +
+	"cluster_id\x18\v \x01(\tR\tclusterId\"\xc1\n" +
 	"\n" +
 	"\x14SoChiTietTaiKhoanRow\x12\x1d\n" +
 	"\n" +
@@ -505,7 +517,9 @@ const file_sochitiettaikhoan_proto_rawDesc = "" +
 	"\x16accounting_object_name\x18\x1c \x01(\tR\x14accountingObjectName\x12!\n" +
 	"\fcustom_field\x18\x1d \x03(\tR\vcustomField\x12.\n" +
 	"\x13custom_field_detail\x18\x1e \x03(\tR\x11customFieldDetail\x12F\n" +
-	" account_name_with_account_number\x18\x1f \x01(\tR\x1caccountNameWithAccountNumber2\x8a\x01\n" +
+	" account_name_with_account_number\x18\x1f \x01(\tR\x1caccountNameWithAccountNumber\x12\x1d\n" +
+	"\n" +
+	"total_rows\x18  \x01(\x03R\ttotalRows2\x8a\x01\n" +
 	"\x18SoChiTietTaiKhoanService\x12n\n" +
 	"\x14GetSoChiTietTaiKhoan\x12+.sochitiettaikhoan.SoChiTietTaiKhoanRequest\x1a'.sochitiettaikhoan.SoChiTietTaiKhoanRow0\x01B\x81\x01\n" +
 	"*vn.softdreams.ebweb.grpc.sochitiettaikhoanB\x16SoChiTietTaiKhoanProtoP\x01Z9softdream.vn/go-gateway/internal/so_chi_tiet_tai_khoan/pbb\x06proto3"
