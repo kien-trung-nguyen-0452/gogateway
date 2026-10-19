@@ -143,6 +143,20 @@ func (s *Service) GetSoChiTiet(ctx context.Context, p QueryParams) ([]Row, int64
 func (s *Service) StreamSoChiTiet(
 	ctx context.Context, p QueryParams, onRow func(Row) error,
 ) (int64, error) {
+	return s.StreamSoChiTietWithTotal(ctx, p, nil, onRow)
+}
+
+// StreamSoChiTietWithTotal giống StreamSoChiTiet, thêm onTotal: gọi ĐÚNG MỘT LẦN,
+// TRƯỚC dòng đầu tiên, với tổng số dòng báo cáo sẽ phát ra (kể cả dòng SDDK/Cộng/
+// SDCK/Tổng cộng) — để client hiện tiến độ "Đã tải x/y dòng" ngay từ đầu.
+//
+// Tổng lấy từ countByAccount (câu đếm gọn chạy SONG SONG với tra cứu đầu kỳ và
+// truy vấn chi tiết) rồi suy ra số dòng tổng hợp đúng theo luật của walker — xem
+// expectedRowCount. Câu đếm lỗi thì chỉ ghi log và bỏ qua onTotal, báo cáo vẫn
+// chạy bình thường. onTotal = nil thì không chạy câu đếm.
+func (s *Service) StreamSoChiTietWithTotal(
+	ctx context.Context, p QueryParams, onTotal func(int64) error, onRow func(Row) error,
+) (int64, error) {
 	if err := validateParams(p); err != nil {
 		return 0, err
 	}
@@ -205,6 +219,19 @@ func (s *Service) StreamSoChiTiet(
 		detailCh <- detailResult{rows: r, err: e}
 	}()
 
+	// Câu đếm chỉ cần detailSQL nên khởi chạy ngay, song song với hai tra cứu
+	// bên dưới và với truy vấn chi tiết — chỉ đợi kết quả ngay trước dòng đầu.
+	countCtx, cancelCount := context.WithCancel(ctx)
+	defer cancelCount()
+	var countCh chan countResult
+	if onTotal != nil {
+		countCh = make(chan countResult, 1)
+		go func() {
+			byAcc, e := s.countByAccount(queryCtx(countCtx, staging), detailSQL)
+			countCh <- countResult{byAccount: byAcc, err: e}
+		}()
+	}
+
 	// resolveAccountInfo và loadOpeningBalances cũng độc lập với nhau (chỉ
 	// cùng phụ thuộc companyIDs/accounts đã có ở trên) — chạy song song.
 	var (
@@ -250,6 +277,18 @@ func (s *Service) StreamSoChiTiet(
 	}
 	rows := detail.rows
 	defer rows.Close()
+
+	if countCh != nil {
+		c := <-countCh
+		if c.err != nil {
+			// Không có tổng thì client chỉ mất phần "/y" — không đáng làm hỏng báo cáo.
+			log.Printf("so-chi-tiet-cac-tai-khoan: bo qua tong so dong, cau dem loi: %v", c.err)
+		} else if total := expectedRowCount(accounts, sddkMap, c.byAccount); total > 0 {
+			if err := onTotal(total); err != nil {
+				return 0, fmt.Errorf("loi gui tong so dong: %w", err)
+			}
+		}
+	}
 
 	for rows.Next() {
 		// Client ngắt giữa chừng thì dừng ngay, không quét nốt phần còn lại.
@@ -1011,6 +1050,96 @@ func (s *Service) runOpening(ctx context.Context, sql string) (map[string]balanc
 		out[acc] = b
 	}
 	return out, rows.Err()
+}
+
+// =============================================================================
+// ĐẾM TRƯỚC TỔNG SỐ DÒNG
+// =============================================================================
+
+// accountCount: số dòng chi tiết và tổng phát sinh của một tài khoản — đủ để
+// biết walker sẽ phát những dòng tổng hợp nào cho tài khoản đó.
+type accountCount struct {
+	rows int64
+	tc   balance
+}
+
+type countResult struct {
+	byAccount map[string]accountCount
+	err       error
+}
+
+// countByAccount đếm dòng chi tiết theo tài khoản bằng cách bọc CHÍNH detailSQL
+// làm truy vấn con — cùng WHERE/GROUP BY/HAVING nên số đếm khớp tuyệt đối với
+// số dòng walker nhận, kể cả chế độ cộng gộp bút toán. Chỉ trả về một dòng mỗi
+// tài khoản; ORDER BY của truy vấn con không cần thiết khi đã gom nhóm nên
+// ClickHouse tự bỏ (query_plan_remove_redundant_sorting).
+func (s *Service) countByAccount(ctx context.Context, detailSQL string) (map[string]accountCount, error) {
+	sql := "SELECT account_number, toInt64(count()), " +
+		"sum(debit_amount), sum(credit_amount), " +
+		"sum(debit_amount_original), sum(credit_amount_original) " +
+		"FROM (" + detailSQL + ") GROUP BY account_number"
+	rows, err := s.conn.Query(ctx, sql)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make(map[string]accountCount)
+	for rows.Next() {
+		var (
+			acc string
+			c   accountCount
+		)
+		if err := rows.Scan(&acc, &c.rows, &c.tc.Debit, &c.tc.Credit, &c.tc.DebitOrig, &c.tc.CreditOrig); err != nil {
+			return nil, err
+		}
+		out[acc] = c
+	}
+	return out, rows.Err()
+}
+
+// expectedRowCount tính đúng số dòng walker sẽ phát ra, theo đúng luật của
+// openAccount/closeAccount/finish/emitGrandTotal — SỬA luật ở walker thì phải
+// sửa cả ở đây, không thì "x/y" của client lệch với số dòng thật:
+//
+//   - mỗi tài khoản CÓ phát sinh: các dòng chi tiết, "Cộng" (luôn có),
+//     "Số dư đầu kỳ" nếu SDDK khác 0, "Số dư cuối kỳ" nếu SDDK khác 0 hoặc
+//     tổng phát sinh khác 0
+//   - tài khoản KHÔNG phát sinh: không phát dòng nào
+//   - "Tổng cộng": 1 dòng nếu có tài khoản phát SDDK/SDCK, hoặc có tài khoản
+//     đã chọn chỉ có SDDK khác 0 (xem finish)
+func expectedRowCount(accounts []string, sddk map[string]balance, byAccount map[string]accountCount) int64 {
+	var total int64
+	anyAccount := false
+	for acc, c := range byAccount {
+		opening := sddk[acc]
+		openingNonZero := !(opening.net().IsZero() && opening.netOrig().IsZero())
+
+		total += c.rows + 1 // chi tiết + "Cộng"
+		if openingNonZero {
+			total++ // "Số dư đầu kỳ"
+			anyAccount = true
+		}
+		if openingNonZero || !c.tc.isZero() {
+			total++ // "Số dư cuối kỳ"
+			anyAccount = true
+		}
+	}
+	if !anyAccount {
+		for _, acc := range accounts {
+			if _, ok := byAccount[acc]; ok {
+				continue
+			}
+			if b, ok := sddk[acc]; ok && !(b.net().IsZero() && b.netOrig().IsZero()) {
+				anyAccount = true
+				break
+			}
+		}
+	}
+	if anyAccount {
+		total++ // "Tổng cộng"
+	}
+	return total
 }
 
 // =============================================================================
