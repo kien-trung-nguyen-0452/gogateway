@@ -20,6 +20,7 @@ package so_chi_tiet_tai_khoan
 import (
 	"context"
 	_ "embed"
+	"errors"
 	"fmt"
 	"log"
 	"regexp"
@@ -28,6 +29,7 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 )
@@ -65,15 +67,36 @@ type Service struct {
 	// eb_dwh.fact_gl_entry_line - xem staging_source.sql va
 	// config.SoChiTietTaiKhoanUseStaging. Dung tam thoi khi pipeline fact loi.
 	useStaging bool
+
+	// stagingCompanies: CompanyID (chu thuong) chay duong staging du useStaging
+	// = false - nhom end tester, xem config.SoChiTietTaiKhoanStagingCompanyIDs.
+	stagingCompanies map[string]struct{}
 }
 
-func NewService(conn clickhouse.Conn, useStaging bool) *Service {
+func NewService(conn clickhouse.Conn, useStaging bool, stagingCompanyIDs []string) *Service {
 	source := "fact (eb_dwh.fact_gl_entry_line)"
 	if useStaging {
 		source = "staging (eb_staging.stg_general_ledger...)"
 	}
 	log.Printf("so-chi-tiet-cac-tai-khoan: GL source = %s [bien moi truong SO_CHI_TIET_TAI_KHOAN_DATA_SOURCE]", source)
-	return &Service{conn: conn, useStaging: useStaging}
+	staging := make(map[string]struct{}, len(stagingCompanyIDs))
+	for _, id := range stagingCompanyIDs {
+		staging[strings.ToLower(id)] = struct{}{}
+	}
+	if len(staging) > 0 {
+		log.Printf("so-chi-tiet-cac-tai-khoan: %d cong ty chay staging [SO_CHI_TIET_TAI_KHOAN_STAGING_COMPANY_IDS]", len(staging))
+	}
+	return &Service{conn: conn, useStaging: useStaging, stagingCompanies: staging}
+}
+
+// stagingFor: request nay doc tu staging khi bat toan cuc, hoac khi cong ty
+// chinh nam trong danh sach tester.
+func (s *Service) stagingFor(p QueryParams) bool {
+	if s.useStaging {
+		return true
+	}
+	_, ok := s.stagingCompanies[strings.ToLower(p.PrimaryCompanyID)]
+	return ok
 }
 
 type driverRows interface {
@@ -182,7 +205,19 @@ func (s *Service) StreamSoChiTietWithTotal(
 		}
 	}
 
-	detailSQL := buildDetailQuery(companyIDs, accounts, p, typeLedger, noCol, s.useStaging)
+	// Truy vấn CHI TIẾT chỉ phụ thuộc companyIDs/accounts/typeLedger (đã có) chứ
+	// không phụ thuộc số dư đầu kỳ, nên khởi chạy ngay song song với hai tra cứu
+	// bên dưới; thời gian tổng ≈ max(đầu kỳ, chi tiết) thay vì cộng dồn. Dòng
+	// chi tiết chỉ được ĐỌC sau khi số dư đầu kỳ xong (walker cần sddkMap).
+	staging := s.stagingFor(p)
+	detailSQL := buildDetailQuery(companyIDs, accounts, p, typeLedger, noCol, staging)
+	detailCtx, cancelDetail := context.WithCancel(ctx)
+	defer cancelDetail()
+	detailCh := make(chan detailResult, 1)
+	go func() {
+		r, e := s.conn.Query(queryCtx(detailCtx, staging), detailSQL)
+		detailCh <- detailResult{rows: r, err: e}
+	}()
 
 	// Câu đếm chỉ cần detailSQL nên khởi chạy ngay, song song với hai tra cứu
 	// bên dưới và với truy vấn chi tiết — chỉ đợi kết quả ngay trước dòng đầu.
@@ -192,7 +227,7 @@ func (s *Service) StreamSoChiTietWithTotal(
 	if onTotal != nil {
 		countCh = make(chan countResult, 1)
 		go func() {
-			byAcc, e := s.countByAccount(countCtx, detailSQL)
+			byAcc, e := s.countByAccount(queryCtx(countCtx, staging), detailSQL)
 			countCh <- countResult{byAccount: byAcc, err: e}
 		}()
 	}
@@ -217,9 +252,13 @@ func (s *Service) StreamSoChiTietWithTotal(
 	}()
 	wgLookup.Wait()
 	if infoErr != nil {
+		cancelDetail()
+		drainDetail(detailCh)
 		return 0, fmt.Errorf("resolve account info: %w", infoErr)
 	}
 	if balErr != nil {
+		cancelDetail()
+		drainDetail(detailCh)
 		return 0, fmt.Errorf("load opening balances: %w", balErr)
 	}
 
@@ -232,10 +271,11 @@ func (s *Service) StreamSoChiTietWithTotal(
 		seen:     make(map[string]bool, len(accounts)),
 	}
 
-	rows, err := s.conn.Query(ctx, detailSQL)
-	if err != nil {
-		return 0, fmt.Errorf("query error: %w", err)
+	detail := <-detailCh
+	if detail.err != nil {
+		return 0, fmt.Errorf("query error: %w", detail.err)
 	}
+	rows := detail.rows
 	defer rows.Close()
 
 	if countCh != nil {
@@ -275,96 +315,6 @@ func (s *Service) StreamSoChiTietWithTotal(
 	}
 
 	return time.Since(start).Milliseconds(), nil
-}
-
-// =============================================================================
-// ĐẾM TRƯỚC TỔNG SỐ DÒNG
-// =============================================================================
-
-// accountCount: số dòng chi tiết và tổng phát sinh của một tài khoản — đủ để
-// biết walker sẽ phát những dòng tổng hợp nào cho tài khoản đó.
-type accountCount struct {
-	rows int64
-	tc   balance
-}
-
-type countResult struct {
-	byAccount map[string]accountCount
-	err       error
-}
-
-// countByAccount đếm dòng chi tiết theo tài khoản bằng cách bọc CHÍNH detailSQL
-// làm truy vấn con — cùng WHERE/GROUP BY/HAVING nên số đếm khớp tuyệt đối với
-// số dòng walker nhận, kể cả chế độ cộng gộp bút toán. Chỉ trả về một dòng mỗi
-// tài khoản; ORDER BY của truy vấn con không cần thiết khi đã gom nhóm nên
-// ClickHouse tự bỏ (query_plan_remove_redundant_sorting).
-func (s *Service) countByAccount(ctx context.Context, detailSQL string) (map[string]accountCount, error) {
-	sql := "SELECT account_number, toInt64(count()), " +
-		"sum(debit_amount), sum(credit_amount), " +
-		"sum(debit_amount_original), sum(credit_amount_original) " +
-		"FROM (" + detailSQL + ") GROUP BY account_number"
-	rows, err := s.conn.Query(ctx, sql)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	out := make(map[string]accountCount)
-	for rows.Next() {
-		var (
-			acc string
-			c   accountCount
-		)
-		if err := rows.Scan(&acc, &c.rows, &c.tc.Debit, &c.tc.Credit, &c.tc.DebitOrig, &c.tc.CreditOrig); err != nil {
-			return nil, err
-		}
-		out[acc] = c
-	}
-	return out, rows.Err()
-}
-
-// expectedRowCount tính đúng số dòng walker sẽ phát ra, theo đúng luật của
-// openAccount/closeAccount/finish/emitGrandTotal — SỬA luật ở walker thì phải
-// sửa cả ở đây, không thì "x/y" của client lệch với số dòng thật:
-//
-//   - mỗi tài khoản CÓ phát sinh: các dòng chi tiết, "Cộng" (luôn có),
-//     "Số dư đầu kỳ" nếu SDDK khác 0, "Số dư cuối kỳ" nếu SDDK khác 0 hoặc
-//     tổng phát sinh khác 0
-//   - tài khoản KHÔNG phát sinh: không phát dòng nào
-//   - "Tổng cộng": 1 dòng nếu có tài khoản phát SDDK/SDCK, hoặc có tài khoản
-//     đã chọn chỉ có SDDK khác 0 (xem finish)
-func expectedRowCount(accounts []string, sddk map[string]balance, byAccount map[string]accountCount) int64 {
-	var total int64
-	anyAccount := false
-	for acc, c := range byAccount {
-		opening := sddk[acc]
-		openingNonZero := !(opening.net().IsZero() && opening.netOrig().IsZero())
-
-		total += c.rows + 1 // chi tiết + "Cộng"
-		if openingNonZero {
-			total++ // "Số dư đầu kỳ"
-			anyAccount = true
-		}
-		if openingNonZero || !c.tc.isZero() {
-			total++ // "Số dư cuối kỳ"
-			anyAccount = true
-		}
-	}
-	if !anyAccount {
-		for _, acc := range accounts {
-			if _, ok := byAccount[acc]; ok {
-				continue
-			}
-			if b, ok := sddk[acc]; ok && !(b.net().IsZero() && b.netOrig().IsZero()) {
-				anyAccount = true
-				break
-			}
-		}
-	}
-	if anyAccount {
-		total++ // "Tổng cộng"
-	}
-	return total
 }
 
 // =============================================================================
@@ -713,9 +663,9 @@ func buildDetailQuery(
 		// code/name) nên dùng accounting_object_id vừa khớp gốc vừa là khoá
 		// duy nhất cần đưa vào GROUP BY.
 		sql = strings.ReplaceAll(sql, "{{AO_CODE_EXPR}}",
-			"dictGetOrDefault('eb.dict_accounting_object', 'accounting_object_code', f.accounting_object_id, '')")
+			"any(ao.code)")
 		sql = strings.ReplaceAll(sql, "{{AO_NAME_EXPR}}",
-			"dictGetOrDefault('eb.dict_accounting_object', 'accounting_object_name', f.accounting_object_id, '')")
+			"any(ao.name)")
 
 		for i := 1; i <= 5; i++ {
 			// custom_field NẰM TRONG GROUP BY của proc gốc.
@@ -748,12 +698,17 @@ func buildDetailQuery(
 		// ORDER BY dùng ALIAS, không phải f.* — sau GROUP BY thì cột gốc không
 		// tham chiếu trực tiếp được.
 		//
-		// Thu tu yeu cau: AccountNumber, OrderType, PostedDate, Date, OrderNumber, No.
-		// OrderType/OrderNumber/Date la field walker tu sinh (khong co that
-		// trong fact table) nen khong the ORDER BY o day; account_number va
-		// posted_date da nam trong ORDER BY ngoai (buildDetailQuery), tail chi
-		// con "no" la cot that con lai trong chuoi yeu cau.
-		sql = strings.ReplaceAll(sql, "{{ORDER_TAIL}}", "no")
+		// Thu tu cua Proc_SO_CHI_TIET_CAC_TAI_KHOAN (ORDER BY cuoi proc):
+		//   AccountNumber, OrderType, PostedDate, Date, OrderNumber, No, OrderPriority
+		// OrderType la hang so o dong chi tiet. Date = GL.Date (ngay chung tu).
+		// OrderNumber la CASE "thu truoc chi sau" tinh tren TK + phat sinh No (xem
+		// orderNumberExpr), KHONG phai field walker tu sinh. account_number va
+		// posted_date da nam trong ORDER BY ngoai (query.sql), day la phan duoi.
+		// Them reference_id + account_corresponding + key_id lam khoa phu de thu tu
+		// tat dinh: o nhanh gop key_id khong phan biet cac nhom cung chung tu/cung TK
+		// khac TK doi ung, nen thieu khoa phu se HOA nhau va dong nhay vi tri
+		// (so du luy ke walker.running lech tai dong do).
+		sql = strings.ReplaceAll(sql, "{{ORDER_TAIL}}", orderTailGrouped)
 
 	} else {
 		// ── CHẾ ĐỘ CHI TIẾT ─────────────────────────────────────────────────
@@ -780,9 +735,9 @@ func buildDetailQuery(
 		sql = strings.ReplaceAll(sql, "{{IS_UNREASONABLE_COST_EXPR}}", "f.is_unreasonable_cost")
 		// Xem ghi chú ở nhánh GroupSameItem==1 phía trên.
 		sql = strings.ReplaceAll(sql, "{{AO_CODE_EXPR}}",
-			"dictGetOrDefault('eb.dict_accounting_object', 'accounting_object_code', f.accounting_object_id, '')")
+			"ao.code")
 		sql = strings.ReplaceAll(sql, "{{AO_NAME_EXPR}}",
-			"dictGetOrDefault('eb.dict_accounting_object', 'accounting_object_name', f.accounting_object_id, '')")
+			"ao.name")
 
 		for i := 1; i <= 5; i++ {
 			sql = strings.ReplaceAll(sql, fmt.Sprintf("{{CF%d}}", i),
@@ -802,21 +757,21 @@ func buildDetailQuery(
 
 		sql = strings.ReplaceAll(sql, "{{GROUP_BY_CLAUSE}}", "")
 		// Xem ghi chu o nhanh GroupSameItem==1 ben tren ve thu tu yeu cau.
-		sql = strings.ReplaceAll(sql, "{{ORDER_TAIL}}", "no")
+		sql = strings.ReplaceAll(sql, "{{ORDER_TAIL}}", orderTailDetail)
 	}
 
-	return applyCommonPlaceholders(sql, companyIDs, accounts, p, typeLedger, useStaging)
+	return applyCommonPlaceholders(sql, companyIDs, accounts, p, typeLedger, useStaging, true)
 }
 
 func buildOpeningQuery(
 	companyIDs, accounts []string, p QueryParams, typeLedger int, useStaging bool,
 ) string {
-	return applyCommonPlaceholders(openingTemplate, companyIDs, accounts, p, typeLedger, useStaging)
+	return applyCommonPlaceholders(openingTemplate, companyIDs, accounts, p, typeLedger, useStaging, false)
 }
 
 func applyCommonPlaceholders(
 	sql string, companyIDs, accounts []string, p QueryParams, typeLedger int,
-	useStaging bool,
+	useStaging bool, pushFromBound bool,
 ) string {
 	accList := quoteJoin(accounts)
 
@@ -825,6 +780,18 @@ func applyCommonPlaceholders(
 		glSource = stagingSourceExpr
 	}
 	sql = strings.ReplaceAll(sql, "{{GL_SOURCE}}", glSource)
+
+	// Cận dưới ngày của nhánh staging: đẩy CHÍNH vị từ `f.posted_date >= FROM_DATE`
+	// của query.sql (f.posted_date = toDate(gl.PostedDate)) vào truy vấn con trước
+	// JOIN, để cắt phân vùng/granule thay vì quét cả lịch sử công ty rồi mới lọc.
+	// INNER JOIN + vị từ chỉ trên cột gl => kết quả tương đương. CHỈ truy vấn
+	// chi tiết (pushFromBound=true); số dư đầu kỳ cần toàn bộ lịch sử trước
+	// FROM_DATE nên KHÔNG được đẩy. Nhánh fact không có placeholder này.
+	fromBound := ""
+	if useStaging && pushFromBound {
+		fromBound = "AND toDate(gl.PostedDate) >= toDate('" + p.FromDate + "')"
+	}
+	sql = strings.ReplaceAll(sql, "{{STAGING_FROM_BOUND}}", fromBound)
 
 	sql = strings.ReplaceAll(sql, "{{COMPANY_IDS}}", quoteJoin(companyIDs))
 	sql = strings.ReplaceAll(sql, "{{FROM_DATE}}", p.FromDate)
@@ -968,10 +935,106 @@ func (s *Service) resolveAccountInfo(
 	return kinds, names, rows.Err()
 }
 
+// queryCtx gắn setting riêng cho nhánh staging: JOIN header×detail lúc query
+// có thể dựng hash table rất lớn trên prod (hàng trăm triệu dòng), từng OOM
+// (MEMORY_LIMIT_EXCEEDED) khi test. grace_hash chia JOIN thành bucket và spill
+// ra đĩa khi vượt max_bytes_in_join thay vì vỡ bộ nhớ; chỉ đổi cách thực thi,
+// KHÔNG đổi kết quả. Nhánh fact không JOIN nên giữ nguyên.
+func queryCtx(ctx context.Context, staging bool) context.Context {
+	if !staging {
+		return ctx
+	}
+	return clickhouse.Context(ctx, clickhouse.WithSettings(clickhouse.Settings{
+		"join_algorithm":    "grace_hash",
+		"max_bytes_in_join": stagingMaxBytesInJoin,
+		// Tắt nạp thống kê part để tối ưu thứ tự JOIN: mỗi truy vấn tốn ~1,5 s (4.230 part: QueryPlanOptimize 0,9 s +
+		// JoinOptimize 0,8 s + LoadedStatistics 0,7 s) bất kể lượng dữ liệu. Chỉ đổi kế hoạch, KHÔNG đổi kết quả (đo prod 14/10/2026:
+		// kết quả giống hệt 3/3 báo cáo; 1 ngày 2,1 -> 1,0 s; báo cáo nặng 809.884 dòng dòng đầu 34 -> 20 s).
+		"allow_statistics_optimize": 0,
+	}))
+}
+
+// openingStagingCtx: setting riêng cho truy vấn SỐ DƯ ĐẦU KỲ nhánh staging.
+// parallel_hash + trần 4 GB (RAM node đã được cấp thêm, chỉ mở cho một số công
+// ty nên chấp nhận tốn RAM hơn để nhanh). Vượt trần => lỗi 191, loadOpeningBalances
+// chạy lại bằng queryCtx (grace_hash).
+func openingStagingCtx(ctx context.Context) context.Context {
+	return clickhouse.Context(ctx, clickhouse.WithSettings(clickhouse.Settings{
+		"join_algorithm":            "parallel_hash",
+		"max_bytes_in_join":         openingMaxBytesInJoin,
+		"allow_statistics_optimize": 0, // xem queryCtx
+	}))
+}
+
+const openingMaxBytesInJoin = 4 << 30
+
+// stagingMaxBytesInJoin: ngưỡng RAM (byte) cho hash table JOIN trước khi
+// grace_hash chia bucket/spill. 1GB để chừa chỗ cho các query song song.
+const stagingMaxBytesInJoin = 1 << 30
+
+// orderNumberExpr tái hiện cột OrderNumber ("thu trước chi sau") của
+// Proc_SO_CHI_TIET_CAC_TAI_KHOAN: 0 nếu TK là 11x, hoặc 15x nhưng không phải 154x, VÀ
+// phát sinh Nợ khác 0; còn lại 1. Dùng ALIAS account_number/debit_amount của SELECT trong
+// query.sql (nhánh gộp: debit_amount là SUM, đúng như proc tính trên tổng đã gộp).
+const orderNumberExpr = "if(((account_number LIKE '11%') OR (account_number LIKE '15%' AND account_number NOT LIKE '154%')) AND debit_amount != 0, 0, 1)"
+
+// Đuôi ORDER BY (sau account_number, posted_date) theo thứ tự của proc: Date, OrderNumber,
+// No, OrderPriority, rồi khoá phụ để kết quả tất định. NULLS FIRST khớp SQL Server (NULL
+// đứng trước). Date = GL.Date (staging: voucher_date; fact đã có cột voucher_date); ở
+// nhánh gộp voucher_date không nằm trong GROUP BY nên phải dùng min().
+const (
+	orderTailGrouped = "min(f.voucher_date) ASC NULLS FIRST, " + orderNumberExpr +
+		", no ASC NULLS FIRST, order_priority ASC NULLS FIRST, reference_id, account_corresponding, key_id"
+	orderTailDetail = "f.voucher_date ASC NULLS FIRST, " + orderNumberExpr +
+		", no ASC NULLS FIRST, order_priority ASC NULLS FIRST, reference_id, key_id"
+)
+
+// detailResult: kết quả khởi chạy truy vấn chi tiết ở goroutine riêng.
+type detailResult struct {
+	rows driver.Rows
+	err  error
+}
+
+// drainDetail đợi truy vấn chi tiết (đã bị hủy context) trả về rồi đóng rows, tránh rò kết nối khi thoát sớm.
+func drainDetail(ch <-chan detailResult) {
+	if r := <-ch; r.rows != nil {
+		_ = r.rows.Close()
+	}
+}
+
+// Mã lỗi ClickHouse khi bảng hash của JOIN vượt giới hạn / hết RAM truy vấn.
+const (
+	chErrSetSizeLimitExceeded = 191
+	chErrMemoryLimitExceeded  = 241
+)
+
+func isJoinMemoryError(err error) bool {
+	var ex *clickhouse.Exception
+	return errors.As(err, &ex) && (ex.Code == chErrSetSizeLimitExceeded || ex.Code == chErrMemoryLimitExceeded)
+}
+
 func (s *Service) loadOpeningBalances(
 	ctx context.Context, companyIDs, accounts []string, p QueryParams, typeLedger int,
 ) (map[string]balance, error) {
-	rows, err := s.conn.Query(ctx, buildOpeningQuery(companyIDs, accounts, p, typeLedger, s.useStaging))
+	staging := s.stagingFor(p)
+	sql := buildOpeningQuery(companyIDs, accounts, p, typeLedger, staging)
+	if !staging {
+		return s.runOpening(queryCtx(ctx, false), sql)
+	}
+	// Nhánh staging: parallel_hash nhanh hơn grace_hash ~3 lần ở truy vấn đầu kỳ
+	// (đo prod 14/10/2026: 20 s → ~4-6 s, kết quả giống hệt) nhưng KHÔNG spill
+	// ra đĩa: vượt max_bytes_in_join thì lỗi. Nên gặp lỗi bộ nhớ/giới hạn JOIN
+	// thì chạy lại đúng câu đó bằng grace_hash (chậm nhưng không bao giờ lỗi).
+	out, err := s.runOpening(openingStagingCtx(ctx), sql)
+	if err != nil && isJoinMemoryError(err) {
+		log.Printf("so-chi-tiet-tai-khoan: parallel_hash loi bo nho (%v), chay lai bang grace_hash", err)
+		return s.runOpening(queryCtx(ctx, true), sql)
+	}
+	return out, err
+}
+
+func (s *Service) runOpening(ctx context.Context, sql string) (map[string]balance, error) {
+	rows, err := s.conn.Query(ctx, sql)
 	if err != nil {
 		return nil, err
 	}
@@ -987,6 +1050,96 @@ func (s *Service) loadOpeningBalances(
 		out[acc] = b
 	}
 	return out, rows.Err()
+}
+
+// =============================================================================
+// ĐẾM TRƯỚC TỔNG SỐ DÒNG
+// =============================================================================
+
+// accountCount: số dòng chi tiết và tổng phát sinh của một tài khoản — đủ để
+// biết walker sẽ phát những dòng tổng hợp nào cho tài khoản đó.
+type accountCount struct {
+	rows int64
+	tc   balance
+}
+
+type countResult struct {
+	byAccount map[string]accountCount
+	err       error
+}
+
+// countByAccount đếm dòng chi tiết theo tài khoản bằng cách bọc CHÍNH detailSQL
+// làm truy vấn con — cùng WHERE/GROUP BY/HAVING nên số đếm khớp tuyệt đối với
+// số dòng walker nhận, kể cả chế độ cộng gộp bút toán. Chỉ trả về một dòng mỗi
+// tài khoản; ORDER BY của truy vấn con không cần thiết khi đã gom nhóm nên
+// ClickHouse tự bỏ (query_plan_remove_redundant_sorting).
+func (s *Service) countByAccount(ctx context.Context, detailSQL string) (map[string]accountCount, error) {
+	sql := "SELECT account_number, toInt64(count()), " +
+		"sum(debit_amount), sum(credit_amount), " +
+		"sum(debit_amount_original), sum(credit_amount_original) " +
+		"FROM (" + detailSQL + ") GROUP BY account_number"
+	rows, err := s.conn.Query(ctx, sql)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make(map[string]accountCount)
+	for rows.Next() {
+		var (
+			acc string
+			c   accountCount
+		)
+		if err := rows.Scan(&acc, &c.rows, &c.tc.Debit, &c.tc.Credit, &c.tc.DebitOrig, &c.tc.CreditOrig); err != nil {
+			return nil, err
+		}
+		out[acc] = c
+	}
+	return out, rows.Err()
+}
+
+// expectedRowCount tính đúng số dòng walker sẽ phát ra, theo đúng luật của
+// openAccount/closeAccount/finish/emitGrandTotal — SỬA luật ở walker thì phải
+// sửa cả ở đây, không thì "x/y" của client lệch với số dòng thật:
+//
+//   - mỗi tài khoản CÓ phát sinh: các dòng chi tiết, "Cộng" (luôn có),
+//     "Số dư đầu kỳ" nếu SDDK khác 0, "Số dư cuối kỳ" nếu SDDK khác 0 hoặc
+//     tổng phát sinh khác 0
+//   - tài khoản KHÔNG phát sinh: không phát dòng nào
+//   - "Tổng cộng": 1 dòng nếu có tài khoản phát SDDK/SDCK, hoặc có tài khoản
+//     đã chọn chỉ có SDDK khác 0 (xem finish)
+func expectedRowCount(accounts []string, sddk map[string]balance, byAccount map[string]accountCount) int64 {
+	var total int64
+	anyAccount := false
+	for acc, c := range byAccount {
+		opening := sddk[acc]
+		openingNonZero := !(opening.net().IsZero() && opening.netOrig().IsZero())
+
+		total += c.rows + 1 // chi tiết + "Cộng"
+		if openingNonZero {
+			total++ // "Số dư đầu kỳ"
+			anyAccount = true
+		}
+		if openingNonZero || !c.tc.isZero() {
+			total++ // "Số dư cuối kỳ"
+			anyAccount = true
+		}
+	}
+	if !anyAccount {
+		for _, acc := range accounts {
+			if _, ok := byAccount[acc]; ok {
+				continue
+			}
+			if b, ok := sddk[acc]; ok && !(b.net().IsZero() && b.netOrig().IsZero()) {
+				anyAccount = true
+				break
+			}
+		}
+	}
+	if anyAccount {
+		total++ // "Tổng cộng"
+	}
+	return total
 }
 
 // =============================================================================

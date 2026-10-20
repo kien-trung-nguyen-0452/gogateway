@@ -1,3 +1,13 @@
+WITH ao AS
+    (
+        SELECT id,
+               argMax(ifNull(accounting_object_code, ''), __source_ts_ms) AS code,
+               argMax(ifNull(accounting_object_name, ''), __source_ts_ms) AS name
+        FROM eb.accounting_object
+        WHERE company_id IN CAST([{{COMPANY_IDS}}] AS Array(UUID))
+        GROUP BY id
+        HAVING argMax(__deleted, __source_ts_ms) = 0
+    )
 SELECT
     {{KEY_ID_EXPR}}                                  AS key_id,
     {{REFERENCE_ID_EXPR}}                            AS reference_id,
@@ -25,6 +35,7 @@ SELECT
     {{CFD3}} AS custom_field_detail3, {{CFD4}} AS custom_field_detail4,
     {{CFD5}} AS custom_field_detail5
 FROM {{GL_SOURCE}}
+LEFT JOIN ao ON ao.id = f.accounting_object_id
 WHERE f.company_id IN CAST([{{COMPANY_IDS}}] AS Array(UUID))
   AND f.posted_date >= toDate('{{FROM_DATE}}')
   AND f.posted_date <= toDate('{{TO_DATE}}')
@@ -50,3 +61,4 @@ ORDER BY
     account_number,
     posted_date,
     {{ORDER_TAIL}}
+SETTINGS distributed_product_mode = 'local'

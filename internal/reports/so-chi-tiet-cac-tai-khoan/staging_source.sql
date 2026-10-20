@@ -51,6 +51,7 @@
         gl.TypeID                 AS type_id,
         gl.TypeLedger             AS type_ledger,
         toDate(gl.PostedDate)     AS posted_date,
+        toDate(gl.Date)           AS voucher_date,
         gl.NoFBook                AS no_fbook,
         gl.NoMBook                AS no_mbook,
         gl.InvoiceNo              AS invoice_no,
@@ -95,5 +96,6 @@
       AND gld.CompanyID IN CAST([{{COMPANY_IDS}}] AS Array(UUID))
       AND gld.Account IN ({{ACCOUNT_NUMBERS}})
       AND toDate(gl.PostedDate) <= toDate('{{TO_DATE}}')
+      {{STAGING_FROM_BOUND}}
       AND (gl.TypeLedger = {{TYPE_LEDGER}} OR gl.TypeLedger = 2)
 ) AS f
