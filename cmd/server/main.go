@@ -30,6 +30,7 @@ import (
 	vlpb "softdream.vn/go-gateway/internal/so_chi_tiet_vat_lieu_hang_hoa/pb"
 
 	// MOI THEM - so chi tiet tai khoan
+	"softdream.vn/go-gateway/internal/grpcbatch"
 	tk "softdream.vn/go-gateway/internal/reports/so-chi-tiet-cac-tai-khoan"
 	tkpb "softdream.vn/go-gateway/internal/so-chi-tiet-cac-tai-khoan/pb"
 )
@@ -52,6 +53,9 @@ func main() {
 	defer conn.Close()
 
 	log.Printf("Da ket noi ClickHouse qua native protocol tai %s:%d", cfg.CHHost, cfg.CHPort)
+
+	// Co lo + nen zstd dung chung cho moi bao cao gRPC - xem internal/grpcbatch.
+	grpcbatch.Configure(cfg.GRPCBatchSize, cfg.GRPCCompression)
 
 	// ---- Cac service ------------------------------------------------------
 	tichLuyService := tichluy.NewService(conn)

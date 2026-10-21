@@ -19,7 +19,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	SoChiTietTaiKhoanService_GetSoChiTietTaiKhoan_FullMethodName = "/sochitiettaikhoan.SoChiTietTaiKhoanService/GetSoChiTietTaiKhoan"
+	SoChiTietTaiKhoanService_GetSoChiTietTaiKhoan_FullMethodName      = "/sochitiettaikhoan.SoChiTietTaiKhoanService/GetSoChiTietTaiKhoan"
+	SoChiTietTaiKhoanService_GetSoChiTietTaiKhoanBatch_FullMethodName = "/sochitiettaikhoan.SoChiTietTaiKhoanService/GetSoChiTietTaiKhoanBatch"
 )
 
 // SoChiTietTaiKhoanServiceClient is the client API for SoChiTietTaiKhoanService service.
@@ -30,6 +31,11 @@ type SoChiTietTaiKhoanServiceClient interface {
 	// Giong so_chi_tiet_vat_lieu - day la diem mau chot tranh treo voi bao cao
 	// vai tram nghin dong.
 	GetSoChiTietTaiKhoan(ctx context.Context, in *SoChiTietTaiKhoanRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[SoChiTietTaiKhoanRow], error)
+	// Cung noi dung voi GetSoChiTietTaiKhoan nhung moi message chua NHIEU dong
+	// (SoChiTietTaiKhoanBatch). Nen zstd chi co hieu qua (~9x) khi nen theo lo,
+	// nen tung dong rieng le chi duoc ~1,15x. Server nen zstd neu client bao ho
+	// tro (grpc-accept-encoding: zstd), nguoc lai gui khong nen. RPC cu giu nguyen.
+	GetSoChiTietTaiKhoanBatch(ctx context.Context, in *SoChiTietTaiKhoanRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[SoChiTietTaiKhoanBatch], error)
 }
 
 type soChiTietTaiKhoanServiceClient struct {
@@ -59,6 +65,25 @@ func (c *soChiTietTaiKhoanServiceClient) GetSoChiTietTaiKhoan(ctx context.Contex
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type SoChiTietTaiKhoanService_GetSoChiTietTaiKhoanClient = grpc.ServerStreamingClient[SoChiTietTaiKhoanRow]
 
+func (c *soChiTietTaiKhoanServiceClient) GetSoChiTietTaiKhoanBatch(ctx context.Context, in *SoChiTietTaiKhoanRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[SoChiTietTaiKhoanBatch], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &SoChiTietTaiKhoanService_ServiceDesc.Streams[1], SoChiTietTaiKhoanService_GetSoChiTietTaiKhoanBatch_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[SoChiTietTaiKhoanRequest, SoChiTietTaiKhoanBatch]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type SoChiTietTaiKhoanService_GetSoChiTietTaiKhoanBatchClient = grpc.ServerStreamingClient[SoChiTietTaiKhoanBatch]
+
 // SoChiTietTaiKhoanServiceServer is the server API for SoChiTietTaiKhoanService service.
 // All implementations must embed UnimplementedSoChiTietTaiKhoanServiceServer
 // for forward compatibility.
@@ -67,6 +92,11 @@ type SoChiTietTaiKhoanServiceServer interface {
 	// Giong so_chi_tiet_vat_lieu - day la diem mau chot tranh treo voi bao cao
 	// vai tram nghin dong.
 	GetSoChiTietTaiKhoan(*SoChiTietTaiKhoanRequest, grpc.ServerStreamingServer[SoChiTietTaiKhoanRow]) error
+	// Cung noi dung voi GetSoChiTietTaiKhoan nhung moi message chua NHIEU dong
+	// (SoChiTietTaiKhoanBatch). Nen zstd chi co hieu qua (~9x) khi nen theo lo,
+	// nen tung dong rieng le chi duoc ~1,15x. Server nen zstd neu client bao ho
+	// tro (grpc-accept-encoding: zstd), nguoc lai gui khong nen. RPC cu giu nguyen.
+	GetSoChiTietTaiKhoanBatch(*SoChiTietTaiKhoanRequest, grpc.ServerStreamingServer[SoChiTietTaiKhoanBatch]) error
 	mustEmbedUnimplementedSoChiTietTaiKhoanServiceServer()
 }
 
@@ -79,6 +109,9 @@ type UnimplementedSoChiTietTaiKhoanServiceServer struct{}
 
 func (UnimplementedSoChiTietTaiKhoanServiceServer) GetSoChiTietTaiKhoan(*SoChiTietTaiKhoanRequest, grpc.ServerStreamingServer[SoChiTietTaiKhoanRow]) error {
 	return status.Error(codes.Unimplemented, "method GetSoChiTietTaiKhoan not implemented")
+}
+func (UnimplementedSoChiTietTaiKhoanServiceServer) GetSoChiTietTaiKhoanBatch(*SoChiTietTaiKhoanRequest, grpc.ServerStreamingServer[SoChiTietTaiKhoanBatch]) error {
+	return status.Error(codes.Unimplemented, "method GetSoChiTietTaiKhoanBatch not implemented")
 }
 func (UnimplementedSoChiTietTaiKhoanServiceServer) mustEmbedUnimplementedSoChiTietTaiKhoanServiceServer() {
 }
@@ -113,6 +146,17 @@ func _SoChiTietTaiKhoanService_GetSoChiTietTaiKhoan_Handler(srv interface{}, str
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type SoChiTietTaiKhoanService_GetSoChiTietTaiKhoanServer = grpc.ServerStreamingServer[SoChiTietTaiKhoanRow]
 
+func _SoChiTietTaiKhoanService_GetSoChiTietTaiKhoanBatch_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(SoChiTietTaiKhoanRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(SoChiTietTaiKhoanServiceServer).GetSoChiTietTaiKhoanBatch(m, &grpc.GenericServerStream[SoChiTietTaiKhoanRequest, SoChiTietTaiKhoanBatch]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type SoChiTietTaiKhoanService_GetSoChiTietTaiKhoanBatchServer = grpc.ServerStreamingServer[SoChiTietTaiKhoanBatch]
+
 // SoChiTietTaiKhoanService_ServiceDesc is the grpc.ServiceDesc for SoChiTietTaiKhoanService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -124,6 +168,11 @@ var SoChiTietTaiKhoanService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "GetSoChiTietTaiKhoan",
 			Handler:       _SoChiTietTaiKhoanService_GetSoChiTietTaiKhoan_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "GetSoChiTietTaiKhoanBatch",
+			Handler:       _SoChiTietTaiKhoanService_GetSoChiTietTaiKhoanBatch_Handler,
 			ServerStreams: true,
 		},
 	},

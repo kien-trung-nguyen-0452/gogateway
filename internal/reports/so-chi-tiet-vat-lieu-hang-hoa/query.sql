@@ -18,6 +18,7 @@ WHERE PostedDate <= toDateTime('{{TO_DATE}}')
     {{MATERIAL_GOODS_FILTER}}
   AND (TypeLedger = 0 OR TypeLedger = 2)
   AND __deleted = 0
+  AND dictHas('eb.dict_material_goods', MaterialGoodsID)
   AND (
     TypeID NOT IN (420, 421, 422)
    OR {{IS_COMPANY_BUSINESS_TYPE_GAS}} <> 1

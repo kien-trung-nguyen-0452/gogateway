@@ -611,6 +611,52 @@ func (x *SoChiTietVatLieuRow) GetMainUnitName() string {
 	return ""
 }
 
+// Mot lo dong lien tiep cua bao cao, GIU NGUYEN THU TU nhu stream tung dong.
+// Lo cuoi co the it hon kich thuoc lo.
+type SoChiTietVatLieuBatch struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Rows          []*SoChiTietVatLieuRow `protobuf:"bytes,1,rep,name=rows,proto3" json:"rows,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SoChiTietVatLieuBatch) Reset() {
+	*x = SoChiTietVatLieuBatch{}
+	mi := &file_sochitietvatlieu_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SoChiTietVatLieuBatch) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SoChiTietVatLieuBatch) ProtoMessage() {}
+
+func (x *SoChiTietVatLieuBatch) ProtoReflect() protoreflect.Message {
+	mi := &file_sochitietvatlieu_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SoChiTietVatLieuBatch.ProtoReflect.Descriptor instead.
+func (*SoChiTietVatLieuBatch) Descriptor() ([]byte, []int) {
+	return file_sochitietvatlieu_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *SoChiTietVatLieuBatch) GetRows() []*SoChiTietVatLieuRow {
+	if x != nil {
+		return x.Rows
+	}
+	return nil
+}
+
 var File_sochitietvatlieu_proto protoreflect.FileDescriptor
 
 const file_sochitietvatlieu_proto_rawDesc = "" +
@@ -688,9 +734,12 @@ const file_sochitietvatlieu_proto_rawDesc = "" +
 	"\x12statistics_code_id\x180 \x01(\tR\x10statisticsCodeId\x12'\n" +
 	"\x0fstatistics_code\x181 \x01(\tR\x0estatisticsCode\x120\n" +
 	"\x14statistics_code_name\x182 \x01(\tR\x12statisticsCodeName\x12$\n" +
-	"\x0emain_unit_name\x183 \x01(\tR\fmainUnitName2\x84\x01\n" +
+	"\x0emain_unit_name\x183 \x01(\tR\fmainUnitName\"R\n" +
+	"\x15SoChiTietVatLieuBatch\x129\n" +
+	"\x04rows\x18\x01 \x03(\v2%.sochitietvatlieu.SoChiTietVatLieuRowR\x04rows2\xf6\x01\n" +
 	"\x17SoChiTietVatLieuService\x12i\n" +
-	"\x13GetSoChiTietVatLieu\x12).sochitietvatlieu.SoChiTietVatLieuRequest\x1a%.sochitietvatlieu.SoChiTietVatLieuRow0\x01B\x86\x01\n" +
+	"\x13GetSoChiTietVatLieu\x12).sochitietvatlieu.SoChiTietVatLieuRequest\x1a%.sochitietvatlieu.SoChiTietVatLieuRow0\x01\x12p\n" +
+	"\x18GetSoChiTietVatLieuBatch\x12).sochitietvatlieu.SoChiTietVatLieuRequest\x1a'.sochitietvatlieu.SoChiTietVatLieuBatch0\x01B\x86\x01\n" +
 	"%vn.softdream.reports.sochitietvatlieuB\x15SoChiTietVatLieuProtoP\x01ZDsoftdream.vn/go-gateway/internal/so_chi_tiet_vat_lieu_hang_hoa/pb;pbb\x06proto3"
 
 var (
@@ -705,19 +754,23 @@ func file_sochitietvatlieu_proto_rawDescGZIP() []byte {
 	return file_sochitietvatlieu_proto_rawDescData
 }
 
-var file_sochitietvatlieu_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_sochitietvatlieu_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_sochitietvatlieu_proto_goTypes = []any{
 	(*SoChiTietVatLieuRequest)(nil), // 0: sochitietvatlieu.SoChiTietVatLieuRequest
 	(*SoChiTietVatLieuRow)(nil),     // 1: sochitietvatlieu.SoChiTietVatLieuRow
+	(*SoChiTietVatLieuBatch)(nil),   // 2: sochitietvatlieu.SoChiTietVatLieuBatch
 }
 var file_sochitietvatlieu_proto_depIdxs = []int32{
-	0, // 0: sochitietvatlieu.SoChiTietVatLieuService.GetSoChiTietVatLieu:input_type -> sochitietvatlieu.SoChiTietVatLieuRequest
-	1, // 1: sochitietvatlieu.SoChiTietVatLieuService.GetSoChiTietVatLieu:output_type -> sochitietvatlieu.SoChiTietVatLieuRow
-	1, // [1:2] is the sub-list for method output_type
-	0, // [0:1] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	1, // 0: sochitietvatlieu.SoChiTietVatLieuBatch.rows:type_name -> sochitietvatlieu.SoChiTietVatLieuRow
+	0, // 1: sochitietvatlieu.SoChiTietVatLieuService.GetSoChiTietVatLieu:input_type -> sochitietvatlieu.SoChiTietVatLieuRequest
+	0, // 2: sochitietvatlieu.SoChiTietVatLieuService.GetSoChiTietVatLieuBatch:input_type -> sochitietvatlieu.SoChiTietVatLieuRequest
+	1, // 3: sochitietvatlieu.SoChiTietVatLieuService.GetSoChiTietVatLieu:output_type -> sochitietvatlieu.SoChiTietVatLieuRow
+	2, // 4: sochitietvatlieu.SoChiTietVatLieuService.GetSoChiTietVatLieuBatch:output_type -> sochitietvatlieu.SoChiTietVatLieuBatch
+	3, // [3:5] is the sub-list for method output_type
+	1, // [1:3] is the sub-list for method input_type
+	1, // [1:1] is the sub-list for extension type_name
+	1, // [1:1] is the sub-list for extension extendee
+	0, // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_sochitietvatlieu_proto_init() }
@@ -731,7 +784,7 @@ func file_sochitietvatlieu_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_sochitietvatlieu_proto_rawDesc), len(file_sochitietvatlieu_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
