@@ -84,20 +84,6 @@ func paramsFromRequest(req *pb.SoChiTietTaiKhoanRequest) QueryParams {
 		IsParentNode:     req.GetIsParentNode(),
 		ClusterID:        req.GetClusterId(),
 	}
-
-	// Message đầu tiên chỉ mang total_rows (header) để client hiện "x/y dòng"
-	// ngay từ đầu — xem ghi chú field total_rows trong proto. Cùng goroutine
-	// với các dòng dữ liệu nên không cần khoá stream.Send.
-	onTotal := func(total int64) error {
-		return stream.Send(&pb.SoChiTietTaiKhoanRow{TotalRows: total})
-	}
-	_, err := g.service.StreamSoChiTietWithTotal(stream.Context(), params, onTotal, func(row Row) error {
-		return stream.Send(rowToProto(row))
-	})
-	if err != nil {
-		return fmt.Errorf("loi stream so chi tiet tai khoan: %w", err)
-	}
-	return nil
 }
 
 // rowToProto xuất số liệu DẠNG STRING qua gRPC.
