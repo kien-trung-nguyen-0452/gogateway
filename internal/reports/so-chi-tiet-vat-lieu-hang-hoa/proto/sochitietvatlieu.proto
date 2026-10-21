@@ -14,6 +14,12 @@ option java_outer_classname = "SoChiTietVatLieuProto";
 // ============================================================================
 service SoChiTietVatLieuService {
   rpc GetSoChiTietVatLieu (SoChiTietVatLieuRequest) returns (stream SoChiTietVatLieuRow);
+
+  // Cung noi dung voi GetSoChiTietVatLieu nhung moi message chua NHIEU dong
+  // (SoChiTietVatLieuBatch). Nen zstd chi co hieu qua khi nen theo lo, nen
+  // tung dong rieng le chi duoc ~1,15x. Server nen zstd neu client bao ho tro
+  // (grpc-accept-encoding: zstd), nguoc lai gui khong nen. RPC cu giu nguyen.
+  rpc GetSoChiTietVatLieuBatch (SoChiTietVatLieuRequest) returns (stream SoChiTietVatLieuBatch);
 }
 
 message SoChiTietVatLieuRequest {
@@ -105,4 +111,10 @@ message SoChiTietVatLieuRow {
   // DVT chinh - don vi goc cua hang hoa, khong doi khi nguoi dung chon quy doi don vi.
   // Phan biet voi unit_name (18) la don vi DANG hien thi (da quy doi).
   string main_unit_name = 51;
+}
+
+// Mot lo dong lien tiep cua bao cao, GIU NGUYEN THU TU nhu stream tung dong.
+// Lo cuoi co the it hon kich thuoc lo.
+message SoChiTietVatLieuBatch {
+  repeated SoChiTietVatLieuRow rows = 1;
 }

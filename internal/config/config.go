@@ -26,6 +26,17 @@ type Config struct {
 	// hien tai.
 	SoChiTietTaiKhoanUseStaging bool
 
+	// GRPCBatchSize: so dong toi da trong mot message cua cac RPC "...Batch"
+	// (moi bao cao dung chung - xem internal/grpcbatch). Bien moi truong
+	// GRPC_BATCH_SIZE, mac dinh 600, khong set hoac sai thi dung mac dinh.
+	GRPCBatchSize int
+
+	// GRPCCompression: false = khong nen zstd cho cac RPC "...Batch" du client
+	// co khai bao ho tro. Dung de tat nhanh khi nghi ngo nen gay loi hoac ton CPU,
+	// khong can deploy lai code. Bien moi truong GRPC_COMPRESSION=off de tat,
+	// mac dinh (hoac bat ky gia tri nao khac "off") la bat.
+	GRPCCompression bool
+
 	// SoChiTietTaiKhoanStagingCompanyIDs: danh sach CompanyID (UUID, ngan cach
 	// boi dau phay) chay duong staging cho rieng cac cong ty nay, con lai van
 	// la fact. Dung de cho vai cong ty lam end tester truoc khi bat dai tra.
@@ -60,6 +71,9 @@ func Load() (Config, error) {
 
 		SoChiTietTaiKhoanUseStaging: strings.EqualFold(
 			getEnv("SO_CHI_TIET_TAI_KHOAN_DATA_SOURCE", "fact"), "staging"),
+
+		GRPCBatchSize:   getEnvInt("GRPC_BATCH_SIZE", 0),
+		GRPCCompression: !strings.EqualFold(getEnv("GRPC_COMPRESSION", "zstd"), "off"),
 
 		SoChiTietTaiKhoanStagingCompanyIDs: splitCSV(
 			os.Getenv("SO_CHI_TIET_TAI_KHOAN_STAGING_COMPANY_IDS")),

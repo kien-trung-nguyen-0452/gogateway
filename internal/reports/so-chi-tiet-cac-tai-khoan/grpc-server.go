@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"time"
 
+	"google.golang.org/grpc"
+
+	"softdream.vn/go-gateway/internal/grpcbatch"
 	"softdream.vn/go-gateway/internal/so-chi-tiet-cac-tai-khoan/pb"
 )
 
@@ -24,19 +27,7 @@ func (g *GRPCServer) GetSoChiTietTaiKhoan(
 	req *pb.SoChiTietTaiKhoanRequest,
 	stream pb.SoChiTietTaiKhoanService_GetSoChiTietTaiKhoanServer,
 ) error {
-	params := QueryParams{
-		CompanyIDs:       req.GetCompanyIds(),
-		PrimaryCompanyID: req.GetPrimaryCompanyId(),
-		AccountNumbers:   req.GetAccountNumbers(),
-		FromDate:         req.GetFromDate(),
-		ToDate:           req.GetToDate(),
-		CurrencyID:       req.GetCurrencyId(),
-		IsFinancialBook:  int(req.GetIsFinancialBook()),
-		IsDependent:      int(req.GetIsDependent()),
-		GroupSameItem:    int(req.GetGroupSameItem()),
-		IsParentNode:     req.GetIsParentNode(),
-		ClusterID:        req.GetClusterId(),
-	}
+	params := paramsFromRequest(req)
 
 	// Message đầu tiên chỉ mang total_rows (header) để client hiện "x/y dòng"
 	// ngay từ đầu — xem ghi chú field total_rows trong proto. Cùng goroutine
@@ -51,6 +42,48 @@ func (g *GRPCServer) GetSoChiTietTaiKhoan(
 		return fmt.Errorf("loi stream so chi tiet tai khoan: %w", err)
 	}
 	return nil
+}
+
+// GetSoChiTietTaiKhoanBatch — cùng nội dung với GetSoChiTietTaiKhoan nhưng gom
+// dòng thành lô và nén zstd (nếu client hỗ trợ). Cỡ lô và công tắc nén do
+// grpcbatch quản lý tập trung. Thứ tự dòng giữ nguyên; lô cuối (kèm dòng Tổng
+// cộng) được flush sau khi walker xong.
+func (g *GRPCServer) GetSoChiTietTaiKhoanBatch(
+	req *pb.SoChiTietTaiKhoanRequest,
+	stream grpc.ServerStreamingServer[pb.SoChiTietTaiKhoanBatch],
+) error {
+	b := grpcbatch.Begin(stream.Context(), func(rows []*pb.SoChiTietTaiKhoanRow) error {
+		return stream.Send(&pb.SoChiTietTaiKhoanBatch{Rows: rows})
+	})
+
+	// Lô tổng số dòng đi trước mọi dòng dữ liệu (onTotal được gọi trước dòng
+	// đầu tiên), nên không đụng vào lô đang gom.
+	onTotal := func(total int64) error {
+		return stream.Send(&pb.SoChiTietTaiKhoanBatch{TotalRows: total})
+	}
+	_, err := g.service.StreamSoChiTietWithTotal(stream.Context(), paramsFromRequest(req), onTotal, func(row Row) error {
+		return b.Add(rowToProto(row))
+	})
+	if err != nil {
+		return fmt.Errorf("loi stream so chi tiet tai khoan (batch): %w", err)
+	}
+	return b.Flush()
+}
+
+func paramsFromRequest(req *pb.SoChiTietTaiKhoanRequest) QueryParams {
+	return QueryParams{
+		CompanyIDs:       req.GetCompanyIds(),
+		PrimaryCompanyID: req.GetPrimaryCompanyId(),
+		AccountNumbers:   req.GetAccountNumbers(),
+		FromDate:         req.GetFromDate(),
+		ToDate:           req.GetToDate(),
+		CurrencyID:       req.GetCurrencyId(),
+		IsFinancialBook:  int(req.GetIsFinancialBook()),
+		IsDependent:      int(req.GetIsDependent()),
+		GroupSameItem:    int(req.GetGroupSameItem()),
+		IsParentNode:     req.GetIsParentNode(),
+		ClusterID:        req.GetClusterId(),
+	}
 }
 
 // rowToProto xuất số liệu DẠNG STRING qua gRPC.
