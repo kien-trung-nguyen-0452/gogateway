@@ -1,0 +1,139 @@
+syntax = "proto3";
+
+package sonhatkychung;
+
+option go_package = "softdream.vn/go-gateway/internal/so-nhat-ky-chung/pb";
+option java_multiple_files = true;
+option java_package = "vn.softdreams.ebweb.grpc.sonhatkychung";
+option java_outer_classname = "SoNhatKyChungProto";
+
+// =============================================================================
+// SERVICE
+// =============================================================================
+
+service SoNhatKyChungService {
+  // Server-streaming: moi dong duoc gui ngay khi scan xong.
+  rpc GetSoNhatKyChung(SoNhatKyChungRequest)
+      returns (stream SoNhatKyChungRow);
+
+  // Cung noi dung voi GetSoNhatKyChung nhung moi message chua NHIEU dong
+  // (SoNhatKyChungBatch). Nen zstd chi co hieu qua khi nen theo lo. Server nen
+  // zstd neu client bao ho tro (grpc-accept-encoding: zstd), nguoc lai gui
+  // khong nen. Day la RPC nen dung.
+  rpc GetSoNhatKyChungBatch(SoNhatKyChungRequest)
+      returns (stream SoNhatKyChungBatch);
+}
+
+// =============================================================================
+// REQUEST
+// =============================================================================
+
+// Tham so anh xa 1-1 voi Proc_SO_NHAT_KY_CHUNG.
+message SoNhatKyChungRequest {
+  // UUID DA SWAP theo quy uoc SQL Server <-> ClickHouse.
+  // Viec swap do Java lam (SqlServerUuidSwap); Go chi nhan UUID chuan.
+  repeated string company_ids        = 1;
+  string          primary_company_id = 2;
+
+  string from_date = 3;  // YYYY-MM-DD
+  string to_date   = 4;  // YYYY-MM-DD
+
+  // 1 = so tai chinh (type_ledger 0, cot no_fbook)
+  // 0 = so quan tri  (type_ledger 1, cot no_mbook)
+  int32 is_financial_book = 5;
+
+  // 1 = gop ca don vi phu thuoc (bridge_org_scope)
+  int32 is_dependent = 6;
+
+  // 1 = cong gop but toan cung chung tu / TK / TK doi ung (@GroupTheSameItem)
+  int32 group_same_item = 7;
+
+  // 1 = them dong "So luy ke ky truoc chuyen sang" o dau (@IsShowAccumAmount)
+  int32 is_show_accum_amount = 8;
+
+  // true = mau mac dinh: KHONG lay hoa don, doi tuong, khoan muc, truong tuy
+  // chinh (@IsDefaultType). false = mau day du cac cot phan tich.
+  bool is_default_type = 9;
+
+  // Multi-cluster. Rong = khong loc.
+  string cluster_id = 10;
+}
+
+// =============================================================================
+// RESPONSE
+// =============================================================================
+
+// Mot dong cua so nhat ky chung. Anh xa 1-1 voi SoNhatKyChungDTO ben Java.
+message SoNhatKyChungRow {
+  // 0 = So luy ke ky truoc chuyen sang | 1 = Chi tiet
+  int32 order_type = 1;
+
+  string reference_id = 2;   // UUID, rong neu khong co
+  int32  type_id      = 3;
+
+  string posted_date  = 4;   // YYYY-MM-DD, rong neu null
+  string date         = 5;   // ngay chung tu
+  string no           = 6;   // no_fbook hoac no_mbook tuy loai so
+
+  string invoice_no     = 7;
+  string invoice_series = 8;
+  string invoice_date   = 9;
+
+  string description = 10;
+  string reason      = 11;
+
+  string account_number               = 12;
+  string corresponding_account_number = 13;
+
+  // ── TIEN TE ──────────────────────────────────────────────────────────────
+  // Dung STRING, KHONG dung double (nguon Decimal(25,10)). Java parse lai bang
+  // new BigDecimal(s). Dong chi co mot ben (nhanh gop) thi ben kia la "0".
+  string exchange_rate    = 14;
+  string debit_amount_nt  = 15;  // phat sinh no nguyen te
+  string debit_amount     = 16;  // phat sinh no quy doi
+  string credit_amount_nt = 17;
+  string credit_amount    = 18;
+
+  string accounting_object_code = 19;
+  string accounting_object_name = 20;
+  string expense_item_code      = 21;
+  string expense_item_name      = 22;
+  string budget_item_code       = 23;
+  string budget_item_name       = 24;
+  string organization_unit_code = 25;
+  string organization_unit_name = 26;
+  string cost_set_code          = 27;
+  string cost_set_name          = 28;
+  string em_contract            = 29;
+  string statistics_code        = 30;
+  string statistics_code_name   = 31;
+
+  // Luon dung 5 phan tu, index 0..4.
+  repeated string custom_field        = 32;
+  repeated string custom_field_detail = 33;
+
+  // "Chi phi hop ly" / "Chi phi khong hop ly"; rong o dong luy ke.
+  string is_unreasonable_cost = 34;
+
+  // Thu tu trong cung chung tu/but toan: 0 = dong ghi No, 1 = dong ghi Co
+  // (chi y nghia o nhanh gop, noi moi but toan tach thanh hai dong).
+  int32 sort_order     = 35;
+  int32 order_priority = 36;
+
+  // Tong so dong bao cao se gui (ke ca dong luy ke).
+  // > 0 nghia la day la message DAU TRANG (header), KHONG phai dong du lieu:
+  // Go gui dung 1 message nhu vay truoc dong dau tien, chi set field nay.
+  // Client phai bo qua message nay khi dung danh sach dong.
+  int64 total_rows = 37;
+}
+
+// Mot lo dong lien tiep cua bao cao, GIU NGUYEN THU TU nhu stream tung dong.
+// Lo cuoi co the it hon kich thuoc lo.
+message SoNhatKyChungBatch {
+  repeated SoNhatKyChungRow rows = 1;
+
+  // Tong so dong bao cao se gui (ke ca dong luy ke).
+  // > 0 nghia la day la lo DAU TIEN va CHI mang tong so (rows rong), de client
+  // hien "x/y dong" ngay tu dau. Khong co dong du lieu nao trong lo nay.
+  int64 total_rows = 2;
+}
