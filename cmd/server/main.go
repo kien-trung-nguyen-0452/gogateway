@@ -33,6 +33,10 @@ import (
 	"softdream.vn/go-gateway/internal/grpcbatch"
 	tk "softdream.vn/go-gateway/internal/reports/so-chi-tiet-cac-tai-khoan"
 	tkpb "softdream.vn/go-gateway/internal/so-chi-tiet-cac-tai-khoan/pb"
+
+	// So nhat ky chung
+	nkc "softdream.vn/go-gateway/internal/reports/so-nhat-ky-chung"
+	nkcpb "softdream.vn/go-gateway/internal/so-nhat-ky-chung/pb"
 )
 
 // isShuttingDown - dung chung giua HTTP /health va gRPC health server de
@@ -89,6 +93,11 @@ func main() {
 	// api.NewRouter chua nhan handler moi. Dang ky truc tiep o day de khong
 	// phai sua chu ky ham dung chung; khi nao on dinh thi don vao NewRouter.
 	mux.Handle("/api/so-chi-tiet-tai-khoan", taiKhoanHandler)
+
+	// So nhat ky chung. useStaging: xem config.SoNhatKyChungUseStaging - bat tam
+	// thoi bang SO_NHAT_KY_CHUNG_DATA_SOURCE=staging khi pipeline fact bi loi.
+	nhatKyChungService := nkc.NewService(conn, cfg.SoNhatKyChungUseStaging, cfg.SoNhatKyChungStagingCompanyIDs)
+	mux.Handle("/api/so-nhat-ky-chung", nkc.NewHandler(nhatKyChungService))
 
 	// ---- HTTP /health -------------------------------------------------
 	// Endpoint HTTP thuan (khac gRPC health server ben duoi) - de cho
@@ -158,6 +167,8 @@ func main() {
 	// MOI THEM - thieu dong nay se bao:
 	//   UNIMPLEMENTED: unknown service sochitiettaikhoan.SoChiTietTaiKhoanService
 	tkpb.RegisterSoChiTietTaiKhoanServiceServer(grpcServer, tk.NewGRPCServer(taiKhoanService))
+
+	nkcpb.RegisterSoNhatKyChungServiceServer(grpcServer, nkc.NewGRPCServer(nhatKyChungService))
 
 	//CashLedger
 	quypb.RegisterSoKeToanChiTietQuyTienMatServiceServer(grpcServer, quy.NewGRPCServer(quyService))

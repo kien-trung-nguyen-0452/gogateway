@@ -49,6 +49,13 @@ type Config struct {
 	// SO_KE_TOAN_CHI_TIET_QUY_TIEN_MAT_DATA_SOURCE=staging.
 	SoKeToanChiTietQuyTienMatUseStaging bool
 
+	// SoNhatKyChungUseStaging / SoNhatKyChungStagingCompanyIDs: cung co che nhu
+	// so chi tiet tai khoan, ap dung cho so nhat ky chung. Bat bang bien moi
+	// truong SO_NHAT_KY_CHUNG_DATA_SOURCE=staging, hoac gioi han cho vai cong ty
+	// bang SO_NHAT_KY_CHUNG_STAGING_COMPANY_IDS (UUID, ngan cach boi dau phay).
+	SoNhatKyChungUseStaging        bool
+	SoNhatKyChungStagingCompanyIDs []string
+
 	// SoChiTietVatLieuOpeningBalanceUseCheckpoint: true = tinh so du dau ky
 	// (opening_balance) cua so chi tiet vat lieu hang hoa qua bang
 	// eb.repository_ledger_checkpoint + phan le raw, thay vi cong don toan bo
@@ -80,6 +87,12 @@ func Load() (Config, error) {
 
 		SoKeToanChiTietQuyTienMatUseStaging: strings.EqualFold(
 			getEnv("SO_KE_TOAN_CHI_TIET_QUY_TIEN_MAT_DATA_SOURCE", "fact"), "staging"),
+
+		SoNhatKyChungUseStaging: strings.EqualFold(
+			getEnv("SO_NHAT_KY_CHUNG_DATA_SOURCE", "fact"), "staging"),
+
+		SoNhatKyChungStagingCompanyIDs: splitCSV(
+			os.Getenv("SO_NHAT_KY_CHUNG_STAGING_COMPANY_IDS")),
 
 		SoChiTietVatLieuOpeningBalanceUseCheckpoint: strings.EqualFold(
 			getEnv("SO_CHI_TIET_VAT_LIEU_OPENING_BALANCE_SOURCE", "raw"), "checkpoint"),
