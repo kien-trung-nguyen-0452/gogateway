@@ -460,6 +460,63 @@ func (x *SoChiTietTaiKhoanRow) GetTotalRows() int64 {
 	return 0
 }
 
+// Mot lo dong lien tiep cua bao cao, GIU NGUYEN THU TU nhu stream tung dong.
+// Lo cuoi co the it hon kich thuoc lo; dong "Tong cong" nam o cuoi lo cuoi.
+type SoChiTietTaiKhoanBatch struct {
+	state protoimpl.MessageState  `protogen:"open.v1"`
+	Rows  []*SoChiTietTaiKhoanRow `protobuf:"bytes,1,rep,name=rows,proto3" json:"rows,omitempty"`
+	// Tong so dong bao cao se gui (ke ca dong SDDK/Cong/SDCK/Tong cong).
+	// > 0 nghia la day la lo DAU TIEN va CHI mang tong so (rows rong), de client
+	// hien "x/y dong" ngay tu dau. Khong co dong du lieu nao trong lo nay.
+	TotalRows     int64 `protobuf:"varint,2,opt,name=total_rows,json=totalRows,proto3" json:"total_rows,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SoChiTietTaiKhoanBatch) Reset() {
+	*x = SoChiTietTaiKhoanBatch{}
+	mi := &file_sochitiettaikhoan_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SoChiTietTaiKhoanBatch) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SoChiTietTaiKhoanBatch) ProtoMessage() {}
+
+func (x *SoChiTietTaiKhoanBatch) ProtoReflect() protoreflect.Message {
+	mi := &file_sochitiettaikhoan_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SoChiTietTaiKhoanBatch.ProtoReflect.Descriptor instead.
+func (*SoChiTietTaiKhoanBatch) Descriptor() ([]byte, []int) {
+	return file_sochitiettaikhoan_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *SoChiTietTaiKhoanBatch) GetRows() []*SoChiTietTaiKhoanRow {
+	if x != nil {
+		return x.Rows
+	}
+	return nil
+}
+
+func (x *SoChiTietTaiKhoanBatch) GetTotalRows() int64 {
+	if x != nil {
+		return x.TotalRows
+	}
+	return 0
+}
+
 var File_sochitiettaikhoan_proto protoreflect.FileDescriptor
 
 const file_sochitiettaikhoan_proto_rawDesc = "" +
@@ -519,9 +576,14 @@ const file_sochitiettaikhoan_proto_rawDesc = "" +
 	"\x13custom_field_detail\x18\x1e \x03(\tR\x11customFieldDetail\x12F\n" +
 	" account_name_with_account_number\x18\x1f \x01(\tR\x1caccountNameWithAccountNumber\x12\x1d\n" +
 	"\n" +
-	"total_rows\x18  \x01(\x03R\ttotalRows2\x8a\x01\n" +
+	"total_rows\x18  \x01(\x03R\ttotalRows\"t\n" +
+	"\x16SoChiTietTaiKhoanBatch\x12;\n" +
+	"\x04rows\x18\x01 \x03(\v2'.sochitiettaikhoan.SoChiTietTaiKhoanRowR\x04rows\x12\x1d\n" +
+	"\n" +
+	"total_rows\x18\x02 \x01(\x03R\ttotalRows2\x81\x02\n" +
 	"\x18SoChiTietTaiKhoanService\x12n\n" +
-	"\x14GetSoChiTietTaiKhoan\x12+.sochitiettaikhoan.SoChiTietTaiKhoanRequest\x1a'.sochitiettaikhoan.SoChiTietTaiKhoanRow0\x01B\x81\x01\n" +
+	"\x14GetSoChiTietTaiKhoan\x12+.sochitiettaikhoan.SoChiTietTaiKhoanRequest\x1a'.sochitiettaikhoan.SoChiTietTaiKhoanRow0\x01\x12u\n" +
+	"\x19GetSoChiTietTaiKhoanBatch\x12+.sochitiettaikhoan.SoChiTietTaiKhoanRequest\x1a).sochitiettaikhoan.SoChiTietTaiKhoanBatch0\x01B\x81\x01\n" +
 	"*vn.softdreams.ebweb.grpc.sochitiettaikhoanB\x16SoChiTietTaiKhoanProtoP\x01Z9softdream.vn/go-gateway/internal/so_chi_tiet_tai_khoan/pbb\x06proto3"
 
 var (
@@ -536,19 +598,23 @@ func file_sochitiettaikhoan_proto_rawDescGZIP() []byte {
 	return file_sochitiettaikhoan_proto_rawDescData
 }
 
-var file_sochitiettaikhoan_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_sochitiettaikhoan_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_sochitiettaikhoan_proto_goTypes = []any{
 	(*SoChiTietTaiKhoanRequest)(nil), // 0: sochitiettaikhoan.SoChiTietTaiKhoanRequest
 	(*SoChiTietTaiKhoanRow)(nil),     // 1: sochitiettaikhoan.SoChiTietTaiKhoanRow
+	(*SoChiTietTaiKhoanBatch)(nil),   // 2: sochitiettaikhoan.SoChiTietTaiKhoanBatch
 }
 var file_sochitiettaikhoan_proto_depIdxs = []int32{
-	0, // 0: sochitiettaikhoan.SoChiTietTaiKhoanService.GetSoChiTietTaiKhoan:input_type -> sochitiettaikhoan.SoChiTietTaiKhoanRequest
-	1, // 1: sochitiettaikhoan.SoChiTietTaiKhoanService.GetSoChiTietTaiKhoan:output_type -> sochitiettaikhoan.SoChiTietTaiKhoanRow
-	1, // [1:2] is the sub-list for method output_type
-	0, // [0:1] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	1, // 0: sochitiettaikhoan.SoChiTietTaiKhoanBatch.rows:type_name -> sochitiettaikhoan.SoChiTietTaiKhoanRow
+	0, // 1: sochitiettaikhoan.SoChiTietTaiKhoanService.GetSoChiTietTaiKhoan:input_type -> sochitiettaikhoan.SoChiTietTaiKhoanRequest
+	0, // 2: sochitiettaikhoan.SoChiTietTaiKhoanService.GetSoChiTietTaiKhoanBatch:input_type -> sochitiettaikhoan.SoChiTietTaiKhoanRequest
+	1, // 3: sochitiettaikhoan.SoChiTietTaiKhoanService.GetSoChiTietTaiKhoan:output_type -> sochitiettaikhoan.SoChiTietTaiKhoanRow
+	2, // 4: sochitiettaikhoan.SoChiTietTaiKhoanService.GetSoChiTietTaiKhoanBatch:output_type -> sochitiettaikhoan.SoChiTietTaiKhoanBatch
+	3, // [3:5] is the sub-list for method output_type
+	1, // [1:3] is the sub-list for method input_type
+	1, // [1:1] is the sub-list for extension type_name
+	1, // [1:1] is the sub-list for extension extendee
+	0, // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_sochitiettaikhoan_proto_init() }
@@ -562,7 +628,7 @@ func file_sochitiettaikhoan_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_sochitiettaikhoan_proto_rawDesc), len(file_sochitiettaikhoan_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

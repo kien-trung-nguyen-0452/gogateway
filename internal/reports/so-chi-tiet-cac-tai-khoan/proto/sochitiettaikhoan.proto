@@ -17,6 +17,13 @@ service SoChiTietTaiKhoanService {
   // vai tram nghin dong.
   rpc GetSoChiTietTaiKhoan(SoChiTietTaiKhoanRequest)
       returns (stream SoChiTietTaiKhoanRow);
+
+  // Cung noi dung voi GetSoChiTietTaiKhoan nhung moi message chua NHIEU dong
+  // (SoChiTietTaiKhoanBatch). Nen zstd chi co hieu qua (~9x) khi nen theo lo,
+  // nen tung dong rieng le chi duoc ~1,15x. Server nen zstd neu client bao ho
+  // tro (grpc-accept-encoding: zstd), nguoc lai gui khong nen. RPC cu giu nguyen.
+  rpc GetSoChiTietTaiKhoanBatch(SoChiTietTaiKhoanRequest)
+      returns (stream SoChiTietTaiKhoanBatch);
 }
 
 // =============================================================================
@@ -117,4 +124,15 @@ message SoChiTietTaiKhoanRow {
   // Go gui dung 1 message nhu vay truoc dong dau tien, chi set field nay.
   // Client phai bo qua message nay khi dung danh sach dong.
   int64 total_rows = 32;
+}
+
+// Mot lo dong lien tiep cua bao cao, GIU NGUYEN THU TU nhu stream tung dong.
+// Lo cuoi co the it hon kich thuoc lo; dong "Tong cong" nam o cuoi lo cuoi.
+message SoChiTietTaiKhoanBatch {
+  repeated SoChiTietTaiKhoanRow rows = 1;
+
+  // Tong so dong bao cao se gui (ke ca dong SDDK/Cong/SDCK/Tong cong).
+  // > 0 nghia la day la lo DAU TIEN va CHI mang tong so (rows rong), de client
+  // hien "x/y dong" ngay tu dau. Khong co dong du lieu nao trong lo nay.
+  int64 total_rows = 2;
 }
