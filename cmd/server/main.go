@@ -33,6 +33,10 @@ import (
 	"softdream.vn/go-gateway/internal/grpcbatch"
 	tk "softdream.vn/go-gateway/internal/reports/so-chi-tiet-cac-tai-khoan"
 	tkpb "softdream.vn/go-gateway/internal/so-chi-tiet-cac-tai-khoan/pb"
+
+	// So chi tiet cong no phai thu
+	cn "softdream.vn/go-gateway/internal/reports/so-chi-tiet-cong-no-phai-thu"
+	cnpb "softdream.vn/go-gateway/internal/so-chi-tiet-cong-no-phai-thu/pb"
 )
 
 // isShuttingDown - dung chung giua HTTP /health va gRPC health server de
@@ -89,6 +93,12 @@ func main() {
 	// api.NewRouter chua nhan handler moi. Dang ky truc tiep o day de khong
 	// phai sua chu ky ham dung chung; khi nao on dinh thi don vao NewRouter.
 	mux.Handle("/api/so-chi-tiet-tai-khoan", taiKhoanHandler)
+
+	// So chi tiet cong no phai thu. useStaging: xem
+	// config.SoChiTietCongNoPhaiThuUseStaging - bat tam thoi bang
+	// SO_CHI_TIET_CONG_NO_PHAI_THU_DATA_SOURCE=staging khi pipeline fact bi loi.
+	congNoPhaiThuService := cn.NewService(conn, cfg.SoChiTietCongNoPhaiThuUseStaging, cfg.SoChiTietCongNoPhaiThuStagingCompanyIDs)
+	mux.Handle("/api/so-chi-tiet-cong-no-phai-thu", cn.NewHandler(congNoPhaiThuService))
 
 	// ---- HTTP /health -------------------------------------------------
 	// Endpoint HTTP thuan (khac gRPC health server ben duoi) - de cho
@@ -158,6 +168,8 @@ func main() {
 	// MOI THEM - thieu dong nay se bao:
 	//   UNIMPLEMENTED: unknown service sochitiettaikhoan.SoChiTietTaiKhoanService
 	tkpb.RegisterSoChiTietTaiKhoanServiceServer(grpcServer, tk.NewGRPCServer(taiKhoanService))
+
+	cnpb.RegisterSoChiTietCongNoPhaiThuServiceServer(grpcServer, cn.NewGRPCServer(congNoPhaiThuService))
 
 	//CashLedger
 	quypb.RegisterSoKeToanChiTietQuyTienMatServiceServer(grpcServer, quy.NewGRPCServer(quyService))
