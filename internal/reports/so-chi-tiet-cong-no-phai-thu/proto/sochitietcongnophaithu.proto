@@ -1,0 +1,131 @@
+syntax = "proto3";
+
+package sochitietcongnophaithu;
+
+option go_package = "softdream.vn/go-gateway/internal/so-chi-tiet-cong-no-phai-thu/pb";
+option java_multiple_files = true;
+option java_package = "vn.softdreams.ebweb.grpc.sochitietcongnophaithu";
+option java_outer_classname = "SoChiTietCongNoPhaiThuProto";
+
+// =============================================================================
+// SERVICE
+// =============================================================================
+
+service SoChiTietCongNoPhaiThuService {
+  // Server-streaming: moi dong duoc gui ngay khi scan xong.
+  rpc GetSoChiTietCongNoPhaiThu(SoChiTietCongNoPhaiThuRequest)
+      returns (stream SoChiTietCongNoPhaiThuRow);
+
+  // Cung noi dung voi GetSoChiTietCongNoPhaiThu nhung moi message chua NHIEU dong
+  // (SoChiTietCongNoPhaiThuBatch). Server nen zstd neu client bao ho tro
+  // (grpc-accept-encoding: zstd). Day la RPC nen dung.
+  rpc GetSoChiTietCongNoPhaiThuBatch(SoChiTietCongNoPhaiThuRequest)
+      returns (stream SoChiTietCongNoPhaiThuBatch);
+}
+
+// =============================================================================
+// REQUEST
+// =============================================================================
+
+// Tham so anh xa 1-1 voi Proc_Chi_Tiet_Cong_No_Phai_Thu.
+message SoChiTietCongNoPhaiThuRequest {
+  // UUID DA SWAP theo quy uoc SQL Server <-> ClickHouse.
+  // Viec swap do Java lam (SqlServerUuidSwap); Go chi nhan UUID chuan.
+  repeated string company_ids        = 1;
+  string          primary_company_id = 2;
+
+  string from_date = 3;  // YYYY-MM-DD
+  string to_date   = 4;  // YYYY-MM-DD
+
+  // 1 = so tai chinh (type_ledger 0), 0 = so quan tri (type_ledger 1) (@currentBook)
+  int32 is_financial_book = 5;
+
+  // 1 = gop ca don vi phu thuoc (bridge_org_scope) (@isDependent)
+  int32 is_dependent = 6;
+
+  // 1 = cong gop but toan giong nhau (@IsSimilarSum)
+  int32 group_same_item = 7;
+
+  // Tai khoan cong no (VD "131"), khop theo tien to nhu proc (LIKE '131%'). BAT BUOC.
+  string account_number = 8;
+
+  // Ma ngoai te; "TH" = tong hop moi loai tien (@CurrencyID).
+  string currency_id = 9;
+
+  // @ParamCheckAll. 1 = lay MOI doi tuong tru nhung doi tuong trong object_ids
+  // (cac bo loc code/name/address/group chi ap dung o che do nay);
+  // 0 = chi lay doi tuong trong object_ids.
+  int32 check_all = 10;
+
+  // UUID DA SWAP. Y nghia phu thuoc check_all.
+  repeated string object_ids = 11;
+
+  // Bo loc (rong = khong loc). Ap dung khi check_all = 1.
+  string accounting_object_code    = 12;
+  string accounting_object_name    = 13;
+  string accounting_object_address = 14;
+  string account_object_group_id   = 15;  // UUID DA SWAP
+
+  // 1 = chi lay doi tuong co phat sinh trong ky (@GetAccountHasData).
+  int32 get_account_has_data = 16;
+
+  // Multi-cluster. Rong = khong loc.
+  string cluster_id = 17;
+}
+
+// =============================================================================
+// RESPONSE
+// =============================================================================
+
+// Mot dong cua so chi tiet cong no phai thu. Anh xa voi ChiTietCongNoPhaiThuDTO ben Java.
+message SoChiTietCongNoPhaiThuRow {
+  // 0 = So du dau ky | 1 = Chi tiet
+  int32 order_type = 1;
+
+  string accounting_object_id   = 2;  // UUID (da swap nguoc ve dang SQL Server)
+  string accounting_object_code = 3;
+  string accounting_object_name = 4;
+
+  string reference_id = 5;   // UUID, rong neu khong co
+  int32  type_id      = 6;   // RefType
+
+  string posted_date = 7;    // YYYY-MM-DD, rong neu null
+  string date        = 8;    // ngay chung tu
+  string no          = 9;    // no_fbook hoac no_mbook tuy loai so
+
+  string description = 10;
+
+  string account_number               = 11;
+  string corresponding_account_number = 12;
+
+  // ── TIEN TE ──────────────────────────────────────────────────────────────
+  // Dung STRING, KHONG dung double (nguon Decimal(25,10)). Java parse lai bang
+  // new BigDecimal(s).
+  string debit_amount_nt  = 13;  // phat sinh no nguyen te
+  string debit_amount     = 14;  // phat sinh no quy doi
+  string credit_amount_nt = 15;
+  string credit_amount    = 16;
+
+  // So du cuoi sau dong nay (da cong don theo doi tuong), da tach cot No/Co
+  // theo loai tai khoan.
+  string closing_debit_amount_nt  = 17;
+  string closing_debit_amount     = 18;
+  string closing_credit_amount_nt = 19;
+  string closing_credit_amount    = 20;
+
+  int32 order_priority = 21;
+
+  // Tong so dong bao cao se gui (ke ca dong so du dau ky).
+  // > 0 nghia la day la message DAU TRANG (header), KHONG phai dong du lieu:
+  // Go gui dung 1 message nhu vay truoc dong dau tien, chi set field nay.
+  // Client phai bo qua message nay khi dung danh sach dong.
+  int64 total_rows = 22;
+}
+
+// Mot lo dong lien tiep cua bao cao, GIU NGUYEN THU TU nhu stream tung dong.
+message SoChiTietCongNoPhaiThuBatch {
+  repeated SoChiTietCongNoPhaiThuRow rows = 1;
+
+  // > 0 nghia la day la lo DAU TIEN va CHI mang tong so (rows rong).
+  int64 total_rows = 2;
+}

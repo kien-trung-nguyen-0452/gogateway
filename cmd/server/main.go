@@ -37,6 +37,10 @@ import (
 	// So nhat ky chung
 	nkc "softdream.vn/go-gateway/internal/reports/so-nhat-ky-chung"
 	nkcpb "softdream.vn/go-gateway/internal/so-nhat-ky-chung/pb"
+
+	// So chi tiet cong no phai thu
+	cn "softdream.vn/go-gateway/internal/reports/so-chi-tiet-cong-no-phai-thu"
+	cnpb "softdream.vn/go-gateway/internal/so-chi-tiet-cong-no-phai-thu/pb"
 )
 
 // isShuttingDown - dung chung giua HTTP /health va gRPC health server de
@@ -100,6 +104,12 @@ func main() {
 	// thoi bang SO_NHAT_KY_CHUNG_DATA_SOURCE=staging khi pipeline fact bi loi.
 	nhatKyChungService := nkc.NewService(conn, cfg.SoNhatKyChungUseStaging, cfg.SoNhatKyChungStagingCompanyIDs)
 	mux.Handle("/api/so-nhat-ky-chung", nkc.NewHandler(nhatKyChungService))
+
+	// So chi tiet cong no phai thu. useStaging: xem
+	// config.SoChiTietCongNoPhaiThuUseStaging - bat tam thoi bang
+	// SO_CHI_TIET_CONG_NO_PHAI_THU_DATA_SOURCE=staging khi pipeline fact bi loi.
+	congNoPhaiThuService := cn.NewService(conn, cfg.SoChiTietCongNoPhaiThuUseStaging, cfg.SoChiTietCongNoPhaiThuStagingCompanyIDs)
+	mux.Handle("/api/so-chi-tiet-cong-no-phai-thu", cn.NewHandler(congNoPhaiThuService))
 
 	// ---- HTTP /health -------------------------------------------------
 	// Endpoint HTTP thuan (khac gRPC health server ben duoi) - de cho
@@ -171,6 +181,8 @@ func main() {
 	tkpb.RegisterSoChiTietTaiKhoanServiceServer(grpcServer, tk.NewGRPCServer(taiKhoanService))
 
 	nkcpb.RegisterSoNhatKyChungServiceServer(grpcServer, nkc.NewGRPCServer(nhatKyChungService))
+
+	cnpb.RegisterSoChiTietCongNoPhaiThuServiceServer(grpcServer, cn.NewGRPCServer(congNoPhaiThuService))
 
 	//CashLedger
 	quypb.RegisterSoKeToanChiTietQuyTienMatServiceServer(grpcServer, quy.NewGRPCServer(quyService))
