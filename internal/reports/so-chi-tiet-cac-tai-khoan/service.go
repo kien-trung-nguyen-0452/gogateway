@@ -676,6 +676,10 @@ func buildDetailQuery(
 				fmt.Sprintf("any(f.custom_field_detail%d)", i))
 		}
 
+		// Proc gốc trả NULL cho 6 danh mục ở chế độ gộp — không JOIN.
+		sql = strings.ReplaceAll(sql, "{{CATALOG_COLUMNS}}", catalogColumnsGrouped)
+		sql = strings.ReplaceAll(sql, "{{CATALOG_JOINS}}", "")
+
 		sql = strings.ReplaceAll(sql, "{{GROUP_BY_CLAUSE}}",
 			"GROUP BY f.reference_id, f.type_id, f.posted_date, f."+noCol+", "+
 				"f.reason, f.account_corresponding, f.invoice_no, f.invoice_date, "+
@@ -745,6 +749,9 @@ func buildDetailQuery(
 			sql = strings.ReplaceAll(sql, fmt.Sprintf("{{CFD%d}}", i),
 				fmt.Sprintf("f.custom_field_detail%d", i))
 		}
+
+		sql = strings.ReplaceAll(sql, "{{CATALOG_COLUMNS}}", catalogColumnsDetail)
+		sql = strings.ReplaceAll(sql, "{{CATALOG_JOINS}}", catalogJoins)
 
 		// Không gộp thì lọc ngay trong WHERE — mỗi dòng đứng độc lập nên không
 		// có chuyện tổng triệt tiêu.
@@ -989,6 +996,31 @@ const (
 		", no ASC NULLS FIRST, order_priority ASC NULLS FIRST, reference_id, key_id"
 )
 
+// Sáu danh mục trên dòng sổ cái (CTE ei/bi/eo/cs/em/stc trong query.sql), khớp
+// các LEFT JOIN ExpenseItem/BudgetItem/EbOrganizationUnit/CostSet/EMContract/
+// StatisticsCode của Proc_SO_CHI_TIET_CAC_TAI_KHOAN. Thứ tự cột phải khớp scanRow.
+// Chế độ gộp: proc trả NULL → hằng chuỗi rỗng, cùng kiểu String với nhánh chi tiết.
+const (
+	catalogJoins = "LEFT JOIN ei ON ei.id = f.expense_item_id\n" +
+		"LEFT JOIN bi ON bi.id = f.budget_item_id\n" +
+		"LEFT JOIN eo ON eo.id = f.department_id\n" +
+		"LEFT JOIN cs ON cs.id = f.cost_set_id\n" +
+		"LEFT JOIN em ON em.id = f.contract_id\n" +
+		"LEFT JOIN stc ON stc.id = f.statistics_code_id"
+	catalogColumnsDetail = "ei.code AS expense_item_code, ei.name AS expense_item_name, " +
+		"bi.code AS budget_item_code, bi.name AS budget_item_name, " +
+		"eo.code AS organization_unit_code, eo.name AS organization_unit_name, " +
+		"cs.code AS cost_set_code, cs.name AS cost_set_name, " +
+		"em.no AS contract_no, " +
+		"stc.code AS statistics_code_code, stc.name AS statistics_code_name"
+	catalogColumnsGrouped = "'' AS expense_item_code, '' AS expense_item_name, " +
+		"'' AS budget_item_code, '' AS budget_item_name, " +
+		"'' AS organization_unit_code, '' AS organization_unit_name, " +
+		"'' AS cost_set_code, '' AS cost_set_name, " +
+		"'' AS contract_no, " +
+		"'' AS statistics_code_code, '' AS statistics_code_name"
+)
+
 // detailResult: kết quả khởi chạy truy vấn chi tiết ở goroutine riêng.
 type detailResult struct {
 	rows driver.Rows
@@ -1171,6 +1203,7 @@ func expectedRowCount(accounts []string, sddk map[string]balance, byAccount map[
 //	is_unreasonable_cost    Nullable(UInt8)   → *uint8            ← KHÔNG phải *int32
 //	accounting_object_*     Nullable(String)  → *string
 //	custom_field*           Nullable(String)  → *string
+//	expense_item_code ...   String (CTE/hằng) → *string           (6 danh mục)
 func scanRow(rows driverRows) (Row, error) {
 	var (
 		keyID                string
@@ -1198,6 +1231,13 @@ func scanRow(rows driverRows) (Row, error) {
 		aoCode, aoName *string
 		cf             [5]*string
 		cfd            [5]*string
+
+		eiCode, eiName   *string
+		biCode, biName   *string
+		eoCode, eoName   *string
+		csCode, csName   *string
+		contractNo       *string
+		stcCode, stcName *string
 	)
 
 	if err := rows.Scan(
@@ -1209,6 +1249,8 @@ func scanRow(rows driverRows) (Row, error) {
 		&aoCode, &aoName,
 		&cf[0], &cf[1], &cf[2], &cf[3], &cf[4],
 		&cfd[0], &cfd[1], &cfd[2], &cfd[3], &cfd[4],
+		&eiCode, &eiName, &biCode, &biName, &eoCode, &eoName,
+		&csCode, &csName, &contractNo, &stcCode, &stcName,
 	); err != nil {
 		return Row{}, err
 	}
@@ -1235,6 +1277,18 @@ func scanRow(rows driverRows) (Row, error) {
 		OrderPriority:        int32OrZero(orderPriority),
 		AccountingObjectCode: strOrEmpty(aoCode),
 		AccountingObjectName: strOrEmpty(aoName),
+
+		ExpenseItemCode:      strOrEmpty(eiCode),
+		ExpenseItemName:      strOrEmpty(eiName),
+		BudgetItemCode:       strOrEmpty(biCode),
+		BudgetItemName:       strOrEmpty(biName),
+		OrganizationUnitCode: strOrEmpty(eoCode),
+		OrganizationUnitName: strOrEmpty(eoName),
+		CostSetCode:          strOrEmpty(csCode),
+		CostSetName:          strOrEmpty(csName),
+		ContractNo:           strOrEmpty(contractNo),
+		StatisticsCodeCode:   strOrEmpty(stcCode),
+		StatisticsCodeName:   strOrEmpty(stcName),
 	}
 
 	if invoiceDate != nil {

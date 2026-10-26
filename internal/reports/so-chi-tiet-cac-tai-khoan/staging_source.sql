@@ -67,12 +67,13 @@
         gl.ExchangeRate           AS exchange_rate,
         gld.OrderPriority         AS order_priority,
         gl.IsUnreasonableCost     AS is_unreasonable_cost,
-        -- Chỉ lộ ID — AO_CODE_EXPR/AO_NAME_EXPR (service.go) tự tra dictionary
-        -- eb.dict_accounting_object theo accounting_object_id, DÙNG CHUNG cho
-        -- cả nguồn fact lẫn staging. Không đọc thẳng AccountingObjectCode/
-        -- AccountingObjectName ở đây: hai cột đó là snapshot đóng băng lúc
-        -- hạch toán, không tự cập nhật khi đối tượng đổi mã/tên sau đó.
         gld.AccountingObjectID    AS accounting_object_id,
+        gl.ExpenseItemID          AS expense_item_id,
+        gl.BudgetItemID           AS budget_item_id,
+        gl.DepartmentID           AS department_id,
+        gl.CostSetID              AS cost_set_id,
+        gl.ContractID             AS contract_id,
+        gl.StatisticsCodeID       AS statistics_code_id,
         gl.CustomField1 AS custom_field1, gl.CustomField2 AS custom_field2,
         gl.CustomField3 AS custom_field3, gl.CustomField4 AS custom_field4,
         gl.CustomField5 AS custom_field5,

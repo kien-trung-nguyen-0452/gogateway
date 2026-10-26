@@ -201,9 +201,24 @@ type SoChiTietTaiKhoanRow struct {
 	// > 0 nghia la day la message DAU TRANG (header), KHONG phai dong du lieu:
 	// Go gui dung 1 message nhu vay truoc dong dau tien, chi set field nay.
 	// Client phai bo qua message nay khi dung danh sach dong.
-	TotalRows     int64 `protobuf:"varint,32,opt,name=total_rows,json=totalRows,proto3" json:"total_rows,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	TotalRows int64 `protobuf:"varint,32,opt,name=total_rows,json=totalRows,proto3" json:"total_rows,omitempty"`
+	// ── DANH MUC TREN DONG SO CAI ────────────────────────────────────────────
+	// GL.ExpenseItemID / BudgetItemID / DepartmentID / CostSetID / ContractID /
+	// StatisticsCodeID. Proc_SO_CHI_TIET_CAC_TAI_KHOAN chi tra o che do CHI TIET;
+	// che do cong gop tra NULL -> o day la chuoi rong.
+	ExpenseItemCode      string `protobuf:"bytes,33,opt,name=expense_item_code,json=expenseItemCode,proto3" json:"expense_item_code,omitempty"`
+	ExpenseItemName      string `protobuf:"bytes,34,opt,name=expense_item_name,json=expenseItemName,proto3" json:"expense_item_name,omitempty"`
+	BudgetItemCode       string `protobuf:"bytes,35,opt,name=budget_item_code,json=budgetItemCode,proto3" json:"budget_item_code,omitempty"`
+	BudgetItemName       string `protobuf:"bytes,36,opt,name=budget_item_name,json=budgetItemName,proto3" json:"budget_item_name,omitempty"`
+	OrganizationUnitCode string `protobuf:"bytes,37,opt,name=organization_unit_code,json=organizationUnitCode,proto3" json:"organization_unit_code,omitempty"` // tu GL.DepartmentID
+	OrganizationUnitName string `protobuf:"bytes,38,opt,name=organization_unit_name,json=organizationUnitName,proto3" json:"organization_unit_name,omitempty"`
+	CostSetCode          string `protobuf:"bytes,39,opt,name=cost_set_code,json=costSetCode,proto3" json:"cost_set_code,omitempty"`
+	CostSetName          string `protobuf:"bytes,40,opt,name=cost_set_name,json=costSetName,proto3" json:"cost_set_name,omitempty"`
+	ContractNo           string `protobuf:"bytes,41,opt,name=contract_no,json=contractNo,proto3" json:"contract_no,omitempty"` // EMContract.No
+	StatisticsCodeCode   string `protobuf:"bytes,42,opt,name=statistics_code_code,json=statisticsCodeCode,proto3" json:"statistics_code_code,omitempty"`
+	StatisticsCodeName   string `protobuf:"bytes,43,opt,name=statistics_code_name,json=statisticsCodeName,proto3" json:"statistics_code_name,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *SoChiTietTaiKhoanRow) Reset() {
@@ -460,6 +475,83 @@ func (x *SoChiTietTaiKhoanRow) GetTotalRows() int64 {
 	return 0
 }
 
+func (x *SoChiTietTaiKhoanRow) GetExpenseItemCode() string {
+	if x != nil {
+		return x.ExpenseItemCode
+	}
+	return ""
+}
+
+func (x *SoChiTietTaiKhoanRow) GetExpenseItemName() string {
+	if x != nil {
+		return x.ExpenseItemName
+	}
+	return ""
+}
+
+func (x *SoChiTietTaiKhoanRow) GetBudgetItemCode() string {
+	if x != nil {
+		return x.BudgetItemCode
+	}
+	return ""
+}
+
+func (x *SoChiTietTaiKhoanRow) GetBudgetItemName() string {
+	if x != nil {
+		return x.BudgetItemName
+	}
+	return ""
+}
+
+func (x *SoChiTietTaiKhoanRow) GetOrganizationUnitCode() string {
+	if x != nil {
+		return x.OrganizationUnitCode
+	}
+	return ""
+}
+
+func (x *SoChiTietTaiKhoanRow) GetOrganizationUnitName() string {
+	if x != nil {
+		return x.OrganizationUnitName
+	}
+	return ""
+}
+
+func (x *SoChiTietTaiKhoanRow) GetCostSetCode() string {
+	if x != nil {
+		return x.CostSetCode
+	}
+	return ""
+}
+
+func (x *SoChiTietTaiKhoanRow) GetCostSetName() string {
+	if x != nil {
+		return x.CostSetName
+	}
+	return ""
+}
+
+func (x *SoChiTietTaiKhoanRow) GetContractNo() string {
+	if x != nil {
+		return x.ContractNo
+	}
+	return ""
+}
+
+func (x *SoChiTietTaiKhoanRow) GetStatisticsCodeCode() string {
+	if x != nil {
+		return x.StatisticsCodeCode
+	}
+	return ""
+}
+
+func (x *SoChiTietTaiKhoanRow) GetStatisticsCodeName() string {
+	if x != nil {
+		return x.StatisticsCodeName
+	}
+	return ""
+}
+
 var File_sochitiettaikhoan_proto protoreflect.FileDescriptor
 
 const file_sochitiettaikhoan_proto_rawDesc = "" +
@@ -480,8 +572,7 @@ const file_sochitiettaikhoan_proto_rawDesc = "" +
 	"\x0eis_parent_node\x18\n" +
 	" \x01(\bR\fisParentNode\x12\x1d\n" +
 	"\n" +
-	"cluster_id\x18\v \x01(\tR\tclusterId\"\xc1\n" +
-	"\n" +
+	"cluster_id\x18\v \x01(\tR\tclusterId\"\xa6\x0e\n" +
 	"\x14SoChiTietTaiKhoanRow\x12\x1d\n" +
 	"\n" +
 	"order_type\x18\x01 \x01(\x05R\torderType\x12!\n" +
@@ -519,7 +610,19 @@ const file_sochitiettaikhoan_proto_rawDesc = "" +
 	"\x13custom_field_detail\x18\x1e \x03(\tR\x11customFieldDetail\x12F\n" +
 	" account_name_with_account_number\x18\x1f \x01(\tR\x1caccountNameWithAccountNumber\x12\x1d\n" +
 	"\n" +
-	"total_rows\x18  \x01(\x03R\ttotalRows2\x8a\x01\n" +
+	"total_rows\x18  \x01(\x03R\ttotalRows\x12*\n" +
+	"\x11expense_item_code\x18! \x01(\tR\x0fexpenseItemCode\x12*\n" +
+	"\x11expense_item_name\x18\" \x01(\tR\x0fexpenseItemName\x12(\n" +
+	"\x10budget_item_code\x18# \x01(\tR\x0ebudgetItemCode\x12(\n" +
+	"\x10budget_item_name\x18$ \x01(\tR\x0ebudgetItemName\x124\n" +
+	"\x16organization_unit_code\x18% \x01(\tR\x14organizationUnitCode\x124\n" +
+	"\x16organization_unit_name\x18& \x01(\tR\x14organizationUnitName\x12\"\n" +
+	"\rcost_set_code\x18' \x01(\tR\vcostSetCode\x12\"\n" +
+	"\rcost_set_name\x18( \x01(\tR\vcostSetName\x12\x1f\n" +
+	"\vcontract_no\x18) \x01(\tR\n" +
+	"contractNo\x120\n" +
+	"\x14statistics_code_code\x18* \x01(\tR\x12statisticsCodeCode\x120\n" +
+	"\x14statistics_code_name\x18+ \x01(\tR\x12statisticsCodeName2\x8a\x01\n" +
 	"\x18SoChiTietTaiKhoanService\x12n\n" +
 	"\x14GetSoChiTietTaiKhoan\x12+.sochitiettaikhoan.SoChiTietTaiKhoanRequest\x1a'.sochitiettaikhoan.SoChiTietTaiKhoanRow0\x01B\x81\x01\n" +
 	"*vn.softdreams.ebweb.grpc.sochitiettaikhoanB\x16SoChiTietTaiKhoanProtoP\x01Z9softdream.vn/go-gateway/internal/so_chi_tiet_tai_khoan/pbb\x06proto3"
