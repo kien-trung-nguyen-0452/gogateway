@@ -142,6 +142,19 @@ func (s *Service) GetSoQuy(ctx context.Context, p QueryParams) ([]Row, int64, er
 func (s *Service) StreamSoQuy(
 	ctx context.Context, p QueryParams, onRow func(Row) error,
 ) (int64, error) {
+	return s.StreamSoQuyWithTotal(ctx, p, nil, onRow)
+}
+
+// StreamSoQuyWithTotal giống StreamSoQuy, thêm onTotal: gọi ĐÚNG MỘT LẦN, TRƯỚC
+// dòng đầu tiên, với tổng số dòng báo cáo sẽ phát ra (kể cả Tồn đầu kỳ/Cộng nhóm)
+// — để client hiện tiến độ "Đã tải x/y dòng".
+//
+// Khác Sổ chi tiết các tài khoản (phải chạy câu đếm riêng): walker ở đây giữ
+// TOÀN BỘ kết quả trong buf rồi mới flush(), nên tổng = len(buf) — chính xác
+// tuyệt đối, không tốn thêm truy vấn nào. onTotal = nil thì bỏ qua.
+func (s *Service) StreamSoQuyWithTotal(
+	ctx context.Context, p QueryParams, onTotal func(int64) error, onRow func(Row) error,
+) (int64, error) {
 	if err := validateParams(p); err != nil {
 		return 0, err
 	}
@@ -237,6 +250,7 @@ func (s *Service) StreamSoQuy(
 	// SQL va con tro `next` cua walker van chay tien mot chieu.
 	w := &walker{
 		onRow:            onRow,
+		onTotal:          onTotal,
 		sddkMap:          sddkMap,
 		accounts:         accounts,
 		descendants:      descendants,
@@ -292,6 +306,7 @@ func (s *Service) pushDetailRows(ctx context.Context, w *walker, sql string) err
 
 type walker struct {
 	onRow            func(Row) error
+	onTotal          func(int64) error // có thể nil — xem StreamSoQuyWithTotal
 	sddkMap          map[string]balance
 	accounts         []string
 	seen             map[string]bool
@@ -569,6 +584,15 @@ func (w *walker) finish() error {
 	}
 
 	w.patchParents()
+
+	// Buffer đã đủ và đã patch xong — len(buf) chính là số dòng flush() sắp gửi.
+	// Gửi tổng TRƯỚC dòng đầu tiên. 0 dòng thì không gửi: client coi total_rows > 0
+	// là message header, 0 không phân biệt được với dòng dữ liệu.
+	if w.onTotal != nil && len(w.buf) > 0 {
+		if err := w.onTotal(int64(len(w.buf))); err != nil {
+			return fmt.Errorf("loi gui tong so dong: %w", err)
+		}
+	}
 	return w.flush()
 }
 
