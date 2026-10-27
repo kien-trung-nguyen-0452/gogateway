@@ -124,6 +124,22 @@ message SoChiTietTaiKhoanRow {
   // Go gui dung 1 message nhu vay truoc dong dau tien, chi set field nay.
   // Client phai bo qua message nay khi dung danh sach dong.
   int64 total_rows = 32;
+
+  // ── DANH MUC TREN DONG SO CAI ────────────────────────────────────────────
+  // GL.ExpenseItemID / BudgetItemID / DepartmentID / CostSetID / ContractID /
+  // StatisticsCodeID. Proc_SO_CHI_TIET_CAC_TAI_KHOAN chi tra o che do CHI TIET;
+  // che do cong gop tra NULL -> o day la chuoi rong.
+  string expense_item_code      = 33;
+  string expense_item_name      = 34;
+  string budget_item_code       = 35;
+  string budget_item_name       = 36;
+  string organization_unit_code = 37;  // tu GL.DepartmentID
+  string organization_unit_name = 38;
+  string cost_set_code          = 39;
+  string cost_set_name          = 40;
+  string contract_no            = 41;  // EMContract.No
+  string statistics_code_code   = 42;
+  string statistics_code_name   = 43;
 }
 
 // Mot lo dong lien tiep cua bao cao, GIU NGUYEN THU TU nhu stream tung dong.

@@ -107,6 +107,20 @@ type Row struct {
 	AccountingObjectCode string `json:"accountingObjectCode"`
 	AccountingObjectName string `json:"accountingObjectName"`
 
+	// Sáu danh mục trên dòng sổ cái — chỉ có ở chế độ chi tiết (chế độ gộp
+	// proc gốc trả NULL), xem catalogJoins trong service.go.
+	ExpenseItemCode      string `json:"expenseItemCode"`
+	ExpenseItemName      string `json:"expenseItemName"`
+	BudgetItemCode       string `json:"budgetItemCode"`
+	BudgetItemName       string `json:"budgetItemName"`
+	OrganizationUnitCode string `json:"organizationUnitCode"`
+	OrganizationUnitName string `json:"organizationUnitName"`
+	CostSetCode          string `json:"costSetCode"`
+	CostSetName          string `json:"costSetName"`
+	ContractNo           string `json:"contractNo"`
+	StatisticsCodeCode   string `json:"statisticsCodeCode"`
+	StatisticsCodeName   string `json:"statisticsCodeName"`
+
 	CustomField       [5]string `json:"customField"`
 	CustomFieldDetail [5]string `json:"customFieldDetail"`
 }

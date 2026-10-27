@@ -135,6 +135,18 @@ func rowToProto(row Row) *pb.SoChiTietTaiKhoanRow {
 		AccountingObjectCode: row.AccountingObjectCode,
 		AccountingObjectName: row.AccountingObjectName,
 
+		ExpenseItemCode:      row.ExpenseItemCode,
+		ExpenseItemName:      row.ExpenseItemName,
+		BudgetItemCode:       row.BudgetItemCode,
+		BudgetItemName:       row.BudgetItemName,
+		OrganizationUnitCode: row.OrganizationUnitCode,
+		OrganizationUnitName: row.OrganizationUnitName,
+		CostSetCode:          row.CostSetCode,
+		CostSetName:          row.CostSetName,
+		ContractNo:           row.ContractNo,
+		StatisticsCodeCode:   row.StatisticsCodeCode,
+		StatisticsCodeName:   row.StatisticsCodeName,
+
 		CustomField:       row.CustomField[:],
 		CustomFieldDetail: row.CustomFieldDetail[:],
 	}
