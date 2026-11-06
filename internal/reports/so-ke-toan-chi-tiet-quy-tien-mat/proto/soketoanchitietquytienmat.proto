@@ -172,4 +172,11 @@ message SoKeToanChiTietQuyTienMatRow {
 
   // true khi position_order != 1. Frontend dung de bold va an so tien theo cot.
   bool is_sum_col = 37;
+
+  // Tong so dong bao cao se gui (ke ca dong Ton dau ky/Cong nhom).
+  // > 0 nghia la day la message DAU TRANG (header), KHONG phai dong du lieu:
+  // Go gui dung 1 message nhu vay truoc dong dau tien, chi set field nay.
+  // Client phai bo qua message nay khi dung danh sach dong.
+  // Giong total_rows = 32 cua sochitiettaikhoan.proto.
+  int64 total_rows = 38;
 }
