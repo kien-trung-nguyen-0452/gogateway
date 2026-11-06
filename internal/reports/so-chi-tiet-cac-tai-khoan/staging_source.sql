@@ -88,15 +88,12 @@
         0              AS is_deleted
     FROM eb_staging.stg_general_ledger AS gl FINAL
     INNER JOIN eb_staging.stg_general_ledger_detail AS gld FINAL
-        ON gl.DetailID = gld.DetailID AND gl.ReferenceID = gld.ReferenceID
+    ON gl.DetailID = gld.DetailID AND gl.ReferenceID = gld.ReferenceID
     WHERE gl.__deleted = 0 AND gld.__deleted = 0
       AND gl.CompanyID IN CAST([{{COMPANY_IDS}}] AS Array(UUID))
-      -- gld.CompanyID: cột chọn lọc quan trọng nhất trong subquery này — xem
-      -- ghi chú "FIX THẬT" ở trên. Thiếu dòng này thì gld.Account một mình
-      -- không đủ chọn lọc (mã tài khoản dùng chung nhiều công ty).
       AND gld.CompanyID IN CAST([{{COMPANY_IDS}}] AS Array(UUID))
       AND gld.Account IN ({{ACCOUNT_NUMBERS}})
       AND toDate(gl.PostedDate) <= toDate('{{TO_DATE}}')
-      {{STAGING_FROM_BOUND}}
+        {{STAGING_FROM_BOUND}}
       AND (gl.TypeLedger = {{TYPE_LEDGER}} OR gl.TypeLedger = 2)
 ) AS f
