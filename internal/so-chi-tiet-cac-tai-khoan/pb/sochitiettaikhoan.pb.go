@@ -42,9 +42,10 @@ type SoChiTietTaiKhoanRequest struct {
 	// true = expand xuong toan bo tai khoan con qua bridge_account_hierarchy
 	IsParentNode bool `protobuf:"varint,10,opt,name=is_parent_node,json=isParentNode,proto3" json:"is_parent_node,omitempty"`
 	// Multi-cluster. Rong = khong loc.
-	ClusterId     string `protobuf:"bytes,11,opt,name=cluster_id,json=clusterId,proto3" json:"cluster_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	ClusterId string `protobuf:"bytes,11,opt,name=cluster_id,json=clusterId,proto3" json:"cluster_id,omitempty"`
+	AccountingStartDate string `protobuf:"bytes,12,opt,name=accounting_start_date,json=accountingStartDate,proto3" json:"accounting_start_date,omitempty"` // YYYY-MM-DD, co the rong
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *SoChiTietTaiKhoanRequest) Reset() {
@@ -150,6 +151,13 @@ func (x *SoChiTietTaiKhoanRequest) GetIsParentNode() bool {
 func (x *SoChiTietTaiKhoanRequest) GetClusterId() string {
 	if x != nil {
 		return x.ClusterId
+	}
+	return ""
+}
+
+func (x *SoChiTietTaiKhoanRequest) GetAccountingStartDate() string {
+	if x != nil {
+		return x.AccountingStartDate
 	}
 	return ""
 }
@@ -453,18 +461,11 @@ func (x *SoChiTietTaiKhoanRow) GetAccountNameWithAccountNumber() string {
 	return ""
 }
 
-func (x *SoChiTietTaiKhoanRow) GetTotalRows() int64 {
-	if x != nil {
-		return x.TotalRows
-	}
-	return 0
-}
-
 var File_sochitiettaikhoan_proto protoreflect.FileDescriptor
 
 const file_sochitiettaikhoan_proto_rawDesc = "" +
 	"\n" +
-	"\x17sochitiettaikhoan.proto\x12\x11sochitiettaikhoan\"\xa5\x03\n" +
+	"\x17sochitiettaikhoan.proto\x12\x11sochitiettaikhoan\"\xd9\x03\n" +
 	"\x18SoChiTietTaiKhoanRequest\x12\x1f\n" +
 	"\vcompany_ids\x18\x01 \x03(\tR\n" +
 	"companyIds\x12,\n" +
@@ -480,7 +481,8 @@ const file_sochitiettaikhoan_proto_rawDesc = "" +
 	"\x0eis_parent_node\x18\n" +
 	" \x01(\bR\fisParentNode\x12\x1d\n" +
 	"\n" +
-	"cluster_id\x18\v \x01(\tR\tclusterId\"\xc1\n" +
+	"cluster_id\x18\v \x01(\tR\tclusterId\x122\n" +
+	"\x15accounting_start_date\x18\f \x01(\tR\x13accountingStartDate\"\xa2\n" +
 	"\n" +
 	"\x14SoChiTietTaiKhoanRow\x12\x1d\n" +
 	"\n" +
@@ -517,9 +519,7 @@ const file_sochitiettaikhoan_proto_rawDesc = "" +
 	"\x16accounting_object_name\x18\x1c \x01(\tR\x14accountingObjectName\x12!\n" +
 	"\fcustom_field\x18\x1d \x03(\tR\vcustomField\x12.\n" +
 	"\x13custom_field_detail\x18\x1e \x03(\tR\x11customFieldDetail\x12F\n" +
-	" account_name_with_account_number\x18\x1f \x01(\tR\x1caccountNameWithAccountNumber\x12\x1d\n" +
-	"\n" +
-	"total_rows\x18  \x01(\x03R\ttotalRows2\x8a\x01\n" +
+	" account_name_with_account_number\x18\x1f \x01(\tR\x1caccountNameWithAccountNumber2\x8a\x01\n" +
 	"\x18SoChiTietTaiKhoanService\x12n\n" +
 	"\x14GetSoChiTietTaiKhoan\x12+.sochitiettaikhoan.SoChiTietTaiKhoanRequest\x1a'.sochitiettaikhoan.SoChiTietTaiKhoanRow0\x01B\x81\x01\n" +
 	"*vn.softdreams.ebweb.grpc.sochitiettaikhoanB\x16SoChiTietTaiKhoanProtoP\x01Z9softdream.vn/go-gateway/internal/so_chi_tiet_tai_khoan/pbb\x06proto3"
