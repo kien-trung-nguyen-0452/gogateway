@@ -144,6 +144,20 @@ func (s *Service) GetSoChiTiet(ctx context.Context, p QueryParams) ([]Row, int64
 func (s *Service) StreamSoChiTiet(
 	ctx context.Context, p QueryParams, onRow func(Row) error,
 ) (int64, error) {
+	return s.StreamSoChiTietWithTotal(ctx, p, nil, onRow)
+}
+
+// StreamSoChiTietWithTotal giống StreamSoChiTiet, thêm onTotal: gọi ĐÚNG MỘT LẦN,
+// TRƯỚC dòng đầu tiên, với tổng số dòng báo cáo sẽ phát ra (kể cả dòng SDDK/Cộng/
+// SDCK/Tổng cộng) — để client hiện tiến độ "Đã tải x/y dòng" ngay từ đầu.
+//
+// Tổng lấy từ countByAccount (câu đếm gọn chạy SONG SONG với tra cứu đầu kỳ và
+// truy vấn chi tiết) rồi suy ra số dòng tổng hợp đúng theo luật của walker — xem
+// expectedRowCount. Câu đếm lỗi thì chỉ ghi log và bỏ qua onTotal, báo cáo vẫn
+// chạy bình thường. onTotal = nil thì không chạy câu đếm.
+func (s *Service) StreamSoChiTietWithTotal(
+	ctx context.Context, p QueryParams, onTotal func(int64) error, onRow func(Row) error,
+) (int64, error) {
 	if err := validateParams(p); err != nil {
 		return 0, err
 	}
@@ -204,6 +218,19 @@ func (s *Service) StreamSoChiTiet(
 		detailCh <- detailResult{rows: r, err: e}
 	}()
 
+	// Câu đếm chỉ cần detailSQL nên khởi chạy ngay, song song với hai tra cứu
+	// bên dưới và với truy vấn chi tiết — chỉ đợi kết quả ngay trước dòng đầu.
+	countCtx, cancelCount := context.WithCancel(ctx)
+	defer cancelCount()
+	var countCh chan countResult
+	if onTotal != nil {
+		countCh = make(chan countResult, 1)
+		go func() {
+			byAcc, e := s.countByAccount(queryCtx(countCtx, staging), detailSQL)
+			countCh <- countResult{byAccount: byAcc, err: e}
+		}()
+	}
+
 	// resolveAccountInfo và loadOpeningBalances cũng độc lập với nhau (chỉ
 	// cùng phụ thuộc companyIDs/accounts đã có ở trên) — chạy song song.
 	var (
@@ -249,6 +276,18 @@ func (s *Service) StreamSoChiTiet(
 	}
 	rows := detail.rows
 	defer rows.Close()
+
+	if countCh != nil {
+		c := <-countCh
+		if c.err != nil {
+			// Không có tổng thì client chỉ mất phần "/y" — không đáng làm hỏng báo cáo.
+			log.Printf("so-chi-tiet-cac-tai-khoan: bo qua tong so dong, cau dem loi: %v", c.err)
+		} else if total := expectedRowCount(accounts, sddkMap, c.byAccount); total > 0 {
+			if err := onTotal(total); err != nil {
+				return 0, fmt.Errorf("loi gui tong so dong: %w", err)
+			}
+		}
+	}
 
 	for rows.Next() {
 		// Client ngắt giữa chừng thì dừng ngay, không quét nốt phần còn lại.
@@ -636,6 +675,10 @@ func buildDetailQuery(
 				fmt.Sprintf("any(f.custom_field_detail%d)", i))
 		}
 
+		// Proc gốc trả NULL cho 6 danh mục ở chế độ gộp — không JOIN.
+		sql = strings.ReplaceAll(sql, "{{CATALOG_COLUMNS}}", catalogColumnsGrouped)
+		sql = strings.ReplaceAll(sql, "{{CATALOG_JOINS}}", "")
+
 		sql = strings.ReplaceAll(sql, "{{GROUP_BY_CLAUSE}}",
 			"GROUP BY f.reference_id, f.type_id, f.posted_date, f."+noCol+", "+
 				"f.reason, f.account_corresponding, f.invoice_no, f.invoice_date, "+
@@ -705,6 +748,9 @@ func buildDetailQuery(
 			sql = strings.ReplaceAll(sql, fmt.Sprintf("{{CFD%d}}", i),
 				fmt.Sprintf("f.custom_field_detail%d", i))
 		}
+
+		sql = strings.ReplaceAll(sql, "{{CATALOG_COLUMNS}}", catalogColumnsDetail)
+		sql = strings.ReplaceAll(sql, "{{CATALOG_JOINS}}", catalogJoins)
 
 		// Không gộp thì lọc ngay trong WHERE — mỗi dòng đứng độc lập nên không
 		// có chuyện tổng triệt tiêu.
@@ -1017,6 +1063,31 @@ const (
 		", no ASC NULLS FIRST, order_priority ASC NULLS FIRST, reference_id, key_id"
 )
 
+// Sáu danh mục trên dòng sổ cái (CTE ei/bi/eo/cs/em/stc trong query.sql), khớp
+// các LEFT JOIN ExpenseItem/BudgetItem/EbOrganizationUnit/CostSet/EMContract/
+// StatisticsCode của Proc_SO_CHI_TIET_CAC_TAI_KHOAN. Thứ tự cột phải khớp scanRow.
+// Chế độ gộp: proc trả NULL → hằng chuỗi rỗng, cùng kiểu String với nhánh chi tiết.
+const (
+	catalogJoins = "LEFT JOIN ei ON ei.id = f.expense_item_id\n" +
+		"LEFT JOIN bi ON bi.id = f.budget_item_id\n" +
+		"LEFT JOIN eo ON eo.id = f.department_id\n" +
+		"LEFT JOIN cs ON cs.id = f.cost_set_id\n" +
+		"LEFT JOIN em ON em.id = f.contract_id\n" +
+		"LEFT JOIN stc ON stc.id = f.statistics_code_id"
+	catalogColumnsDetail = "ei.code AS expense_item_code, ei.name AS expense_item_name, " +
+		"bi.code AS budget_item_code, bi.name AS budget_item_name, " +
+		"eo.code AS organization_unit_code, eo.name AS organization_unit_name, " +
+		"cs.code AS cost_set_code, cs.name AS cost_set_name, " +
+		"em.no AS contract_no, " +
+		"stc.code AS statistics_code_code, stc.name AS statistics_code_name"
+	catalogColumnsGrouped = "'' AS expense_item_code, '' AS expense_item_name, " +
+		"'' AS budget_item_code, '' AS budget_item_name, " +
+		"'' AS organization_unit_code, '' AS organization_unit_name, " +
+		"'' AS cost_set_code, '' AS cost_set_name, " +
+		"'' AS contract_no, " +
+		"'' AS statistics_code_code, '' AS statistics_code_name"
+)
+
 // detailResult: kết quả khởi chạy truy vấn chi tiết ở goroutine riêng.
 type detailResult struct {
 	rows driver.Rows
@@ -1081,6 +1152,96 @@ func (s *Service) runOpening(ctx context.Context, sql string) (map[string]balanc
 }
 
 // =============================================================================
+// ĐẾM TRƯỚC TỔNG SỐ DÒNG
+// =============================================================================
+
+// accountCount: số dòng chi tiết và tổng phát sinh của một tài khoản — đủ để
+// biết walker sẽ phát những dòng tổng hợp nào cho tài khoản đó.
+type accountCount struct {
+	rows int64
+	tc   balance
+}
+
+type countResult struct {
+	byAccount map[string]accountCount
+	err       error
+}
+
+// countByAccount đếm dòng chi tiết theo tài khoản bằng cách bọc CHÍNH detailSQL
+// làm truy vấn con — cùng WHERE/GROUP BY/HAVING nên số đếm khớp tuyệt đối với
+// số dòng walker nhận, kể cả chế độ cộng gộp bút toán. Chỉ trả về một dòng mỗi
+// tài khoản; ORDER BY của truy vấn con không cần thiết khi đã gom nhóm nên
+// ClickHouse tự bỏ (query_plan_remove_redundant_sorting).
+func (s *Service) countByAccount(ctx context.Context, detailSQL string) (map[string]accountCount, error) {
+	sql := "SELECT account_number, toInt64(count()), " +
+		"sum(debit_amount), sum(credit_amount), " +
+		"sum(debit_amount_original), sum(credit_amount_original) " +
+		"FROM (" + detailSQL + ") GROUP BY account_number"
+	rows, err := s.conn.Query(ctx, sql)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make(map[string]accountCount)
+	for rows.Next() {
+		var (
+			acc string
+			c   accountCount
+		)
+		if err := rows.Scan(&acc, &c.rows, &c.tc.Debit, &c.tc.Credit, &c.tc.DebitOrig, &c.tc.CreditOrig); err != nil {
+			return nil, err
+		}
+		out[acc] = c
+	}
+	return out, rows.Err()
+}
+
+// expectedRowCount tính đúng số dòng walker sẽ phát ra, theo đúng luật của
+// openAccount/closeAccount/finish/emitGrandTotal — SỬA luật ở walker thì phải
+// sửa cả ở đây, không thì "x/y" của client lệch với số dòng thật:
+//
+//   - mỗi tài khoản CÓ phát sinh: các dòng chi tiết, "Cộng" (luôn có),
+//     "Số dư đầu kỳ" nếu SDDK khác 0, "Số dư cuối kỳ" nếu SDDK khác 0 hoặc
+//     tổng phát sinh khác 0
+//   - tài khoản KHÔNG phát sinh: không phát dòng nào
+//   - "Tổng cộng": 1 dòng nếu có tài khoản phát SDDK/SDCK, hoặc có tài khoản
+//     đã chọn chỉ có SDDK khác 0 (xem finish)
+func expectedRowCount(accounts []string, sddk map[string]balance, byAccount map[string]accountCount) int64 {
+	var total int64
+	anyAccount := false
+	for acc, c := range byAccount {
+		opening := sddk[acc]
+		openingNonZero := !(opening.net().IsZero() && opening.netOrig().IsZero())
+
+		total += c.rows + 1 // chi tiết + "Cộng"
+		if openingNonZero {
+			total++ // "Số dư đầu kỳ"
+			anyAccount = true
+		}
+		if openingNonZero || !c.tc.isZero() {
+			total++ // "Số dư cuối kỳ"
+			anyAccount = true
+		}
+	}
+	if !anyAccount {
+		for _, acc := range accounts {
+			if _, ok := byAccount[acc]; ok {
+				continue
+			}
+			if b, ok := sddk[acc]; ok && !(b.net().IsZero() && b.netOrig().IsZero()) {
+				anyAccount = true
+				break
+			}
+		}
+	}
+	if anyAccount {
+		total++ // "Tổng cộng"
+	}
+	return total
+}
+
+// =============================================================================
 // SCAN
 // =============================================================================
 
@@ -1109,6 +1270,7 @@ func (s *Service) runOpening(ctx context.Context, sql string) (map[string]balanc
 //	is_unreasonable_cost    Nullable(UInt8)   → *uint8            ← KHÔNG phải *int32
 //	accounting_object_*     Nullable(String)  → *string
 //	custom_field*           Nullable(String)  → *string
+//	expense_item_code ...   String (CTE/hằng) → *string           (6 danh mục)
 func scanRow(rows driverRows) (Row, error) {
 	var (
 		keyID                string
@@ -1136,6 +1298,13 @@ func scanRow(rows driverRows) (Row, error) {
 		aoCode, aoName *string
 		cf             [5]*string
 		cfd            [5]*string
+
+		eiCode, eiName   *string
+		biCode, biName   *string
+		eoCode, eoName   *string
+		csCode, csName   *string
+		contractNo       *string
+		stcCode, stcName *string
 	)
 
 	if err := rows.Scan(
@@ -1147,6 +1316,8 @@ func scanRow(rows driverRows) (Row, error) {
 		&aoCode, &aoName,
 		&cf[0], &cf[1], &cf[2], &cf[3], &cf[4],
 		&cfd[0], &cfd[1], &cfd[2], &cfd[3], &cfd[4],
+		&eiCode, &eiName, &biCode, &biName, &eoCode, &eoName,
+		&csCode, &csName, &contractNo, &stcCode, &stcName,
 	); err != nil {
 		return Row{}, err
 	}
@@ -1173,6 +1344,18 @@ func scanRow(rows driverRows) (Row, error) {
 		OrderPriority:        int32OrZero(orderPriority),
 		AccountingObjectCode: strOrEmpty(aoCode),
 		AccountingObjectName: strOrEmpty(aoName),
+
+		ExpenseItemCode:      strOrEmpty(eiCode),
+		ExpenseItemName:      strOrEmpty(eiName),
+		BudgetItemCode:       strOrEmpty(biCode),
+		BudgetItemName:       strOrEmpty(biName),
+		OrganizationUnitCode: strOrEmpty(eoCode),
+		OrganizationUnitName: strOrEmpty(eoName),
+		CostSetCode:          strOrEmpty(csCode),
+		CostSetName:          strOrEmpty(csName),
+		ContractNo:           strOrEmpty(contractNo),
+		StatisticsCodeCode:   strOrEmpty(stcCode),
+		StatisticsCodeName:   strOrEmpty(stcName),
 	}
 
 	if invoiceDate != nil {

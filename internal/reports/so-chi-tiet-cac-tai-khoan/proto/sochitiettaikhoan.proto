@@ -120,4 +120,28 @@ message SoChiTietTaiKhoanRow {
   // Chuoi "154 - Chi phi SXKD do dang". Frontend dung cho dong tieu de nhom
   // khi nguoi dung chon xem "Tat ca" tai khoan.
   string account_name_with_account_number = 31;
+
+  // Tong so dong bao cao se gui (ke ca dong SDDK/Cong/SDCK/Tong cong).
+  // > 0 nghia la day la message DAU TRANG (header), KHONG phai dong du lieu:
+  // Go gui dung 1 message nhu vay truoc dong dau tien, chi set field nay.
+  // Client phai bo qua message nay khi dung danh sach dong.
+  int64 total_rows = 32;
+
+  // 32 = total_rows (EBW-65626, xem core-grpc-contract) — khong dung so nay.
+
+  // ── DANH MUC TREN DONG SO CAI ────────────────────────────────────────────
+  // GL.ExpenseItemID / BudgetItemID / DepartmentID / CostSetID / ContractID /
+  // StatisticsCodeID. Proc_SO_CHI_TIET_CAC_TAI_KHOAN chi tra o che do CHI TIET;
+  // che do cong gop tra NULL -> o day la chuoi rong.
+  string expense_item_code      = 33;
+  string expense_item_name      = 34;
+  string budget_item_code       = 35;
+  string budget_item_name       = 36;
+  string organization_unit_code = 37;  // tu GL.DepartmentID
+  string organization_unit_name = 38;
+  string cost_set_code          = 39;
+  string cost_set_name          = 40;
+  string contract_no            = 41;  // EMContract.No
+  string statistics_code_code   = 42;
+  string statistics_code_name   = 43;
 }

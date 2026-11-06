@@ -67,12 +67,13 @@
         gl.ExchangeRate           AS exchange_rate,
         gld.OrderPriority         AS order_priority,
         gl.IsUnreasonableCost     AS is_unreasonable_cost,
-        -- Chỉ lộ ID — AO_CODE_EXPR/AO_NAME_EXPR (service.go) tự tra dictionary
-        -- eb.dict_accounting_object theo accounting_object_id, DÙNG CHUNG cho
-        -- cả nguồn fact lẫn staging. Không đọc thẳng AccountingObjectCode/
-        -- AccountingObjectName ở đây: hai cột đó là snapshot đóng băng lúc
-        -- hạch toán, không tự cập nhật khi đối tượng đổi mã/tên sau đó.
         gld.AccountingObjectID    AS accounting_object_id,
+        gl.ExpenseItemID          AS expense_item_id,
+        gl.BudgetItemID           AS budget_item_id,
+        gl.DepartmentID           AS department_id,
+        gl.CostSetID              AS cost_set_id,
+        gl.ContractID             AS contract_id,
+        gl.StatisticsCodeID       AS statistics_code_id,
         gl.CustomField1 AS custom_field1, gl.CustomField2 AS custom_field2,
         gl.CustomField3 AS custom_field3, gl.CustomField4 AS custom_field4,
         gl.CustomField5 AS custom_field5,
@@ -87,15 +88,12 @@
         0              AS is_deleted
     FROM eb_staging.stg_general_ledger AS gl FINAL
     INNER JOIN eb_staging.stg_general_ledger_detail AS gld FINAL
-        ON gl.DetailID = gld.DetailID AND gl.ReferenceID = gld.ReferenceID
+    ON gl.DetailID = gld.DetailID AND gl.ReferenceID = gld.ReferenceID
     WHERE gl.__deleted = 0 AND gld.__deleted = 0
       AND gl.CompanyID IN CAST([{{COMPANY_IDS}}] AS Array(UUID))
-      -- gld.CompanyID: cột chọn lọc quan trọng nhất trong subquery này — xem
-      -- ghi chú "FIX THẬT" ở trên. Thiếu dòng này thì gld.Account một mình
-      -- không đủ chọn lọc (mã tài khoản dùng chung nhiều công ty).
       AND gld.CompanyID IN CAST([{{COMPANY_IDS}}] AS Array(UUID))
       AND gld.Account IN ({{ACCOUNT_NUMBERS}})
       AND toDate(gl.PostedDate) <= toDate('{{TO_DATE}}')
-      {{STAGING_FROM_BOUND}}
+        {{STAGING_FROM_BOUND}}
       AND (gl.TypeLedger = {{TYPE_LEDGER}} OR gl.TypeLedger = 2)
 ) AS f
