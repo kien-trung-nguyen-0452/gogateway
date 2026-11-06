@@ -83,7 +83,16 @@ func paramsFromRequest(req *pb.SoChiTietTaiKhoanRequest) QueryParams {
 		GroupSameItem:    int(req.GetGroupSameItem()),
 		IsParentNode:     req.GetIsParentNode(),
 		ClusterID:        req.GetClusterId(),
+		AccountingStartDate: req.GetAccountingStartDate(),
 	}
+
+	_, err := g.service.StreamSoChiTiet(stream.Context(), params, func(row Row) error {
+		return stream.Send(rowToProto(row))
+	})
+	if err != nil {
+		return fmt.Errorf("loi stream so chi tiet tai khoan: %w", err)
+	}
+	return nil
 }
 
 // rowToProto xuất số liệu DẠNG STRING qua gRPC.

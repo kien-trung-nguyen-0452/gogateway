@@ -13,17 +13,18 @@ type Handler struct {
 func NewHandler(service *Service) *Handler { return &Handler{service: service} }
 
 type RequestBody struct {
-	CompanyIDs       []string `json:"companyIds"`
-	PrimaryCompanyID string   `json:"primaryCompanyId"`
-	AccountNumbers   []string `json:"accountNumbers"`
-	FromDate         string   `json:"fromDate"`
-	ToDate           string   `json:"toDate"`
-	CurrencyID       string   `json:"currencyId"`
-	IsFinancialBook  int      `json:"isFinancialBook"`
-	IsDependent      int      `json:"isDependent"`
-	GroupSameItem    int      `json:"groupSameItem"`
-	IsParentNode     bool     `json:"isParentNode"`
-	ClusterID        string   `json:"clusterId"`
+	CompanyIDs          []string `json:"companyIds"`
+	PrimaryCompanyID    string   `json:"primaryCompanyId"`
+	AccountNumbers      []string `json:"accountNumbers"`
+	FromDate            string   `json:"fromDate"`
+	ToDate              string   `json:"toDate"`
+	CurrencyID          string   `json:"currencyId"`
+	IsFinancialBook     int      `json:"isFinancialBook"`
+	IsDependent         int      `json:"isDependent"`
+	GroupSameItem       int      `json:"groupSameItem"`
+	IsParentNode        bool     `json:"isParentNode"`
+	ClusterID           string   `json:"clusterId"`
+	AccountingStartDate string   `json:"accountingStartDate"`
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -41,17 +42,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	params := QueryParams{
-		CompanyIDs:       body.CompanyIDs,
-		PrimaryCompanyID: body.PrimaryCompanyID,
-		AccountNumbers:   body.AccountNumbers,
-		FromDate:         body.FromDate,
-		ToDate:           body.ToDate,
-		CurrencyID:       body.CurrencyID,
-		IsFinancialBook:  body.IsFinancialBook,
-		IsDependent:      body.IsDependent,
-		GroupSameItem:    body.GroupSameItem,
-		IsParentNode:     body.IsParentNode,
-		ClusterID:        body.ClusterID,
+		CompanyIDs:          body.CompanyIDs,
+		PrimaryCompanyID:    body.PrimaryCompanyID,
+		AccountNumbers:      body.AccountNumbers,
+		FromDate:            body.FromDate,
+		ToDate:              body.ToDate,
+		CurrencyID:          body.CurrencyID,
+		IsFinancialBook:     body.IsFinancialBook,
+		IsDependent:         body.IsDependent,
+		GroupSameItem:       body.GroupSameItem,
+		IsParentNode:        body.IsParentNode,
+		ClusterID:           body.ClusterID,
+		AccountingStartDate: body.AccountingStartDate,
 	}
 
 	switch {

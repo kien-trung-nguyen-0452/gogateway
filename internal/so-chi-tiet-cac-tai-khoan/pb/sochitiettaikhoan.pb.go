@@ -42,9 +42,10 @@ type SoChiTietTaiKhoanRequest struct {
 	// true = expand xuong toan bo tai khoan con qua bridge_account_hierarchy
 	IsParentNode bool `protobuf:"varint,10,opt,name=is_parent_node,json=isParentNode,proto3" json:"is_parent_node,omitempty"`
 	// Multi-cluster. Rong = khong loc.
-	ClusterId     string `protobuf:"bytes,11,opt,name=cluster_id,json=clusterId,proto3" json:"cluster_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	ClusterId string `protobuf:"bytes,11,opt,name=cluster_id,json=clusterId,proto3" json:"cluster_id,omitempty"`
+	AccountingStartDate string `protobuf:"bytes,12,opt,name=accounting_start_date,json=accountingStartDate,proto3" json:"accounting_start_date,omitempty"` // YYYY-MM-DD, co the rong
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *SoChiTietTaiKhoanRequest) Reset() {
@@ -150,6 +151,13 @@ func (x *SoChiTietTaiKhoanRequest) GetIsParentNode() bool {
 func (x *SoChiTietTaiKhoanRequest) GetClusterId() string {
 	if x != nil {
 		return x.ClusterId
+	}
+	return ""
+}
+
+func (x *SoChiTietTaiKhoanRequest) GetAccountingStartDate() string {
+	if x != nil {
+		return x.AccountingStartDate
 	}
 	return ""
 }
@@ -613,7 +621,7 @@ var File_sochitiettaikhoan_proto protoreflect.FileDescriptor
 
 const file_sochitiettaikhoan_proto_rawDesc = "" +
 	"\n" +
-	"\x17sochitiettaikhoan.proto\x12\x11sochitiettaikhoan\"\xa5\x03\n" +
+	"\x17sochitiettaikhoan.proto\x12\x11sochitiettaikhoan\"\xd9\x03\n" +
 	"\x18SoChiTietTaiKhoanRequest\x12\x1f\n" +
 	"\vcompany_ids\x18\x01 \x03(\tR\n" +
 	"companyIds\x12,\n" +
@@ -629,7 +637,9 @@ const file_sochitiettaikhoan_proto_rawDesc = "" +
 	"\x0eis_parent_node\x18\n" +
 	" \x01(\bR\fisParentNode\x12\x1d\n" +
 	"\n" +
-	"cluster_id\x18\v \x01(\tR\tclusterId\"\xa6\x0e\n" +
+	"cluster_id\x18\v \x01(\tR\tclusterId\x122\n" +
+	"\x15accounting_start_date\x18\f \x01(\tR\x13accountingStartDate\"\xa2\n" +
+	"\n" +
 	"\x14SoChiTietTaiKhoanRow\x12\x1d\n" +
 	"\n" +
 	"order_type\x18\x01 \x01(\x05R\torderType\x12!\n" +

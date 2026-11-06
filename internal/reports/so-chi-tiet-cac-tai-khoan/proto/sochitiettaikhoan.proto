@@ -59,6 +59,15 @@ message SoChiTietTaiKhoanRequest {
 
   // Multi-cluster. Rong = khong loc.
   string cluster_id = 11;
+
+  // Can duoi ngay cho truy van SO DU DAU KY (query_opening.sql) - tranh quet
+  // toan bo lich su ClickHouse truoc from_date. La ngay cong ty bat dau hach
+  // toan tren phan mem (OrganizationUnit.StartDate ben Java) TRU 1 ngay -
+  // khong co phat sinh that truoc ngay nay nen cat bo an toan, khong doi ket
+  // qua. Ve nghiep vu KHONG duoc phep null - rong (client cu chua gui, hoac
+  // du lieu bat thuong) thi Go KHONG ap can duoi nao, khong tu doan moc khac
+  // (xem resolveOpeningFromDate).
+  string accounting_start_date = 12;  // YYYY-MM-DD, co the rong
 }
 
 // =============================================================================

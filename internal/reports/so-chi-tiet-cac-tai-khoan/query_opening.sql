@@ -7,6 +7,7 @@ SELECT
 FROM {{GL_SOURCE}}
 WHERE f.company_id IN CAST([{{COMPANY_IDS}}] AS Array(UUID))
   AND f.posted_date < toDate('{{FROM_DATE}}')
+  {{OPENING_FROM_DATE_BOUND}}
   AND (f.type_ledger = {{TYPE_LEDGER}} OR f.type_ledger = 2)
   AND f.account_number IN ({{ACCOUNT_NUMBERS}})
   AND f.is_deleted = 0
