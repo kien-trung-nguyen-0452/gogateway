@@ -42,7 +42,7 @@ type SoChiTietTaiKhoanRequest struct {
 	// true = expand xuong toan bo tai khoan con qua bridge_account_hierarchy
 	IsParentNode bool `protobuf:"varint,10,opt,name=is_parent_node,json=isParentNode,proto3" json:"is_parent_node,omitempty"`
 	// Multi-cluster. Rong = khong loc.
-	ClusterId string `protobuf:"bytes,11,opt,name=cluster_id,json=clusterId,proto3" json:"cluster_id,omitempty"`
+	ClusterId           string `protobuf:"bytes,11,opt,name=cluster_id,json=clusterId,proto3" json:"cluster_id,omitempty"`
 	AccountingStartDate string `protobuf:"bytes,12,opt,name=accounting_start_date,json=accountingStartDate,proto3" json:"accounting_start_date,omitempty"` // YYYY-MM-DD, co the rong
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
@@ -619,85 +619,7 @@ func (x *SoChiTietTaiKhoanBatch) GetTotalRows() int64 {
 
 var File_sochitiettaikhoan_proto protoreflect.FileDescriptor
 
-const file_sochitiettaikhoan_proto_rawDesc = "" +
-	"\n" +
-	"\x17sochitiettaikhoan.proto\x12\x11sochitiettaikhoan\"\xd9\x03\n" +
-	"\x18SoChiTietTaiKhoanRequest\x12\x1f\n" +
-	"\vcompany_ids\x18\x01 \x03(\tR\n" +
-	"companyIds\x12,\n" +
-	"\x12primary_company_id\x18\x02 \x01(\tR\x10primaryCompanyId\x12'\n" +
-	"\x0faccount_numbers\x18\x03 \x03(\tR\x0eaccountNumbers\x12\x1b\n" +
-	"\tfrom_date\x18\x04 \x01(\tR\bfromDate\x12\x17\n" +
-	"\ato_date\x18\x05 \x01(\tR\x06toDate\x12\x1f\n" +
-	"\vcurrency_id\x18\x06 \x01(\tR\n" +
-	"currencyId\x12*\n" +
-	"\x11is_financial_book\x18\a \x01(\x05R\x0fisFinancialBook\x12!\n" +
-	"\fis_dependent\x18\b \x01(\x05R\visDependent\x12&\n" +
-	"\x0fgroup_same_item\x18\t \x01(\x05R\rgroupSameItem\x12$\n" +
-	"\x0eis_parent_node\x18\n" +
-	" \x01(\bR\fisParentNode\x12\x1d\n" +
-	"\n" +
-	"cluster_id\x18\v \x01(\tR\tclusterId\x122\n" +
-	"\x15accounting_start_date\x18\f \x01(\tR\x13accountingStartDate\"\xa2\n" +
-	"\n" +
-	"\x14SoChiTietTaiKhoanRow\x12\x1d\n" +
-	"\n" +
-	"order_type\x18\x01 \x01(\x05R\torderType\x12!\n" +
-	"\forder_number\x18\x02 \x01(\x05R\vorderNumber\x12\x12\n" +
-	"\x04bold\x18\x03 \x01(\bR\x04bold\x12%\n" +
-	"\x0eaccount_number\x18\x04 \x01(\tR\raccountNumber\x122\n" +
-	"\x15account_category_kind\x18\x05 \x01(\x05R\x13accountCategoryKind\x12\x15\n" +
-	"\x06key_id\x18\x06 \x01(\tR\x05keyId\x12!\n" +
-	"\freference_id\x18\a \x01(\tR\vreferenceId\x12\x17\n" +
-	"\atype_id\x18\b \x01(\x05R\x06typeId\x12\x1f\n" +
-	"\vposted_date\x18\t \x01(\tR\n" +
-	"postedDate\x12!\n" +
-	"\finvoice_date\x18\n" +
-	" \x01(\tR\vinvoiceDate\x12\x1d\n" +
-	"\n" +
-	"invoice_no\x18\v \x01(\tR\tinvoiceNo\x12\x0e\n" +
-	"\x02no\x18\f \x01(\tR\x02no\x12\x16\n" +
-	"\x06reason\x18\r \x01(\tR\x06reason\x12!\n" +
-	"\fjournal_memo\x18\x0e \x01(\tR\vjournalMemo\x123\n" +
-	"\x15account_corresponding\x18\x0f \x01(\tR\x14accountCorresponding\x12!\n" +
-	"\fdebit_amount\x18\x10 \x01(\tR\vdebitAmount\x12#\n" +
-	"\rcredit_amount\x18\x11 \x01(\tR\fcreditAmount\x122\n" +
-	"\x15debit_amount_original\x18\x12 \x01(\tR\x13debitAmountOriginal\x124\n" +
-	"\x16credit_amount_original\x18\x13 \x01(\tR\x14creditAmountOriginal\x120\n" +
-	"\x14closing_debit_amount\x18\x14 \x01(\tR\x12closingDebitAmount\x122\n" +
-	"\x15closing_credit_amount\x18\x15 \x01(\tR\x13closingCreditAmount\x12A\n" +
-	"\x1dclosing_debit_amount_original\x18\x16 \x01(\tR\x1aclosingDebitAmountOriginal\x12C\n" +
-	"\x1eclosing_credit_amount_original\x18\x17 \x01(\tR\x1bclosingCreditAmountOriginal\x12#\n" +
-	"\rexchange_rate\x18\x18 \x01(\tR\fexchangeRate\x12%\n" +
-	"\x0eorder_priority\x18\x19 \x01(\x05R\rorderPriority\x120\n" +
-	"\x14is_unreasonable_cost\x18\x1a \x01(\tR\x12isUnreasonableCost\x124\n" +
-	"\x16accounting_object_code\x18\x1b \x01(\tR\x14accountingObjectCode\x124\n" +
-	"\x16accounting_object_name\x18\x1c \x01(\tR\x14accountingObjectName\x12!\n" +
-	"\fcustom_field\x18\x1d \x03(\tR\vcustomField\x12.\n" +
-	"\x13custom_field_detail\x18\x1e \x03(\tR\x11customFieldDetail\x12F\n" +
-	" account_name_with_account_number\x18\x1f \x01(\tR\x1caccountNameWithAccountNumber\x12\x1d\n" +
-	"\n" +
-	"total_rows\x18  \x01(\x03R\ttotalRows\x12*\n" +
-	"\x11expense_item_code\x18! \x01(\tR\x0fexpenseItemCode\x12*\n" +
-	"\x11expense_item_name\x18\" \x01(\tR\x0fexpenseItemName\x12(\n" +
-	"\x10budget_item_code\x18# \x01(\tR\x0ebudgetItemCode\x12(\n" +
-	"\x10budget_item_name\x18$ \x01(\tR\x0ebudgetItemName\x124\n" +
-	"\x16organization_unit_code\x18% \x01(\tR\x14organizationUnitCode\x124\n" +
-	"\x16organization_unit_name\x18& \x01(\tR\x14organizationUnitName\x12\"\n" +
-	"\rcost_set_code\x18' \x01(\tR\vcostSetCode\x12\"\n" +
-	"\rcost_set_name\x18( \x01(\tR\vcostSetName\x12\x1f\n" +
-	"\vcontract_no\x18) \x01(\tR\n" +
-	"contractNo\x120\n" +
-	"\x14statistics_code_code\x18* \x01(\tR\x12statisticsCodeCode\x120\n" +
-	"\x14statistics_code_name\x18+ \x01(\tR\x12statisticsCodeName\"t\n" +
-	"\x16SoChiTietTaiKhoanBatch\x12;\n" +
-	"\x04rows\x18\x01 \x03(\v2'.sochitiettaikhoan.SoChiTietTaiKhoanRowR\x04rows\x12\x1d\n" +
-	"\n" +
-	"total_rows\x18\x02 \x01(\x03R\ttotalRows2\x81\x02\n" +
-	"\x18SoChiTietTaiKhoanService\x12n\n" +
-	"\x14GetSoChiTietTaiKhoan\x12+.sochitiettaikhoan.SoChiTietTaiKhoanRequest\x1a'.sochitiettaikhoan.SoChiTietTaiKhoanRow0\x01\x12u\n" +
-	"\x19GetSoChiTietTaiKhoanBatch\x12+.sochitiettaikhoan.SoChiTietTaiKhoanRequest\x1a).sochitiettaikhoan.SoChiTietTaiKhoanBatch0\x01B\x81\x01\n" +
-	"*vn.softdreams.ebweb.grpc.sochitiettaikhoanB\x16SoChiTietTaiKhoanProtoP\x01Z9softdream.vn/go-gateway/internal/so_chi_tiet_tai_khoan/pbb\x06proto3"
+const file_sochitiettaikhoan_proto_rawDesc = "\n\x17sochitiettaikhoan.proto\x12\x11sochitiettaikhoan\"\xd9\x03\n\x18SoChiTietTaiKhoanRequest\x12\x1f\n\vcompany_ids\x18\x01 \x03(\tR\ncompanyIds\x12,\n\x12primary_company_id\x18\x02 \x01(\tR\x10primaryCompanyId\x12'\n\x0faccount_numbers\x18\x03 \x03(\tR\x0eaccountNumbers\x12\x1b\n\tfrom_date\x18\x04 \x01(\tR\bfromDate\x12\x17\n\ato_date\x18\x05 \x01(\tR\x06toDate\x12\x1f\n\vcurrency_id\x18\x06 \x01(\tR\ncurrencyId\x12*\n\x11is_financial_book\x18\a \x01(\x05R\x0fisFinancialBook\x12!\n\fis_dependent\x18\b \x01(\x05R\visDependent\x12&\n\x0fgroup_same_item\x18\t \x01(\x05R\rgroupSameItem\x12$\n\x0eis_parent_node\x18\n \x01(\bR\fisParentNode\x12\x1d\n\ncluster_id\x18\v \x01(\tR\tclusterId\x122\n\x15accounting_start_date\x18\f \x01(\tR\x13accountingStartDate\"\xa6\x0e\n\x14SoChiTietTaiKhoanRow\x12\x1d\n\norder_type\x18\x01 \x01(\x05R\torderType\x12!\n\forder_number\x18\x02 \x01(\x05R\vorderNumber\x12\x12\n\x04bold\x18\x03 \x01(\bR\x04bold\x12%\n\x0eaccount_number\x18\x04 \x01(\tR\raccountNumber\x122\n\x15account_category_kind\x18\x05 \x01(\x05R\x13accountCategoryKind\x12\x15\n\x06key_id\x18\x06 \x01(\tR\x05keyId\x12!\n\freference_id\x18\a \x01(\tR\vreferenceId\x12\x17\n\atype_id\x18\b \x01(\x05R\x06typeId\x12\x1f\n\vposted_date\x18\t \x01(\tR\npostedDate\x12!\n\finvoice_date\x18\n \x01(\tR\vinvoiceDate\x12\x1d\n\ninvoice_no\x18\v \x01(\tR\tinvoiceNo\x12\x0e\n\x02no\x18\f \x01(\tR\x02no\x12\x16\n\x06reason\x18\r \x01(\tR\x06reason\x12!\n\fjournal_memo\x18\x0e \x01(\tR\vjournalMemo\x123\n\x15account_corresponding\x18\x0f \x01(\tR\x14accountCorresponding\x12!\n\fdebit_amount\x18\x10 \x01(\tR\vdebitAmount\x12#\n\rcredit_amount\x18\x11 \x01(\tR\fcreditAmount\x122\n\x15debit_amount_original\x18\x12 \x01(\tR\x13debitAmountOriginal\x124\n\x16credit_amount_original\x18\x13 \x01(\tR\x14creditAmountOriginal\x120\n\x14closing_debit_amount\x18\x14 \x01(\tR\x12closingDebitAmount\x122\n\x15closing_credit_amount\x18\x15 \x01(\tR\x13closingCreditAmount\x12A\n\x1dclosing_debit_amount_original\x18\x16 \x01(\tR\x1aclosingDebitAmountOriginal\x12C\n\x1eclosing_credit_amount_original\x18\x17 \x01(\tR\x1bclosingCreditAmountOriginal\x12#\n\rexchange_rate\x18\x18 \x01(\tR\fexchangeRate\x12%\n\x0eorder_priority\x18\x19 \x01(\x05R\rorderPriority\x120\n\x14is_unreasonable_cost\x18\x1a \x01(\tR\x12isUnreasonableCost\x124\n\x16accounting_object_code\x18\x1b \x01(\tR\x14accountingObjectCode\x124\n\x16accounting_object_name\x18\x1c \x01(\tR\x14accountingObjectName\x12!\n\fcustom_field\x18\x1d \x03(\tR\vcustomField\x12.\n\x13custom_field_detail\x18\x1e \x03(\tR\x11customFieldDetail\x12F\n account_name_with_account_number\x18\x1f \x01(\tR\x1caccountNameWithAccountNumber\x12\x1d\n\ntotal_rows\x18  \x01(\x03R\ttotalRows\x12*\n\x11expense_item_code\x18! \x01(\tR\x0fexpenseItemCode\x12*\n\x11expense_item_name\x18\" \x01(\tR\x0fexpenseItemName\x12(\n\x10budget_item_code\x18# \x01(\tR\x0ebudgetItemCode\x12(\n\x10budget_item_name\x18$ \x01(\tR\x0ebudgetItemName\x124\n\x16organization_unit_code\x18% \x01(\tR\x14organizationUnitCode\x124\n\x16organization_unit_name\x18& \x01(\tR\x14organizationUnitName\x12\"\n\rcost_set_code\x18' \x01(\tR\vcostSetCode\x12\"\n\rcost_set_name\x18( \x01(\tR\vcostSetName\x12\x1f\n\vcontract_no\x18) \x01(\tR\ncontractNo\x120\n\x14statistics_code_code\x18* \x01(\tR\x12statisticsCodeCode\x120\n\x14statistics_code_name\x18+ \x01(\tR\x12statisticsCodeName\"t\n\x16SoChiTietTaiKhoanBatch\x12;\n\x04rows\x18\x01 \x03(\v2'.sochitiettaikhoan.SoChiTietTaiKhoanRowR\x04rows\x12\x1d\n\ntotal_rows\x18\x02 \x01(\x03R\ttotalRows2\x81\x02\n\x18SoChiTietTaiKhoanService\x12n\n\x14GetSoChiTietTaiKhoan\x12+.sochitiettaikhoan.SoChiTietTaiKhoanRequest\x1a'.sochitiettaikhoan.SoChiTietTaiKhoanRow0\x01\x12u\n\x19GetSoChiTietTaiKhoanBatch\x12+.sochitiettaikhoan.SoChiTietTaiKhoanRequest\x1a).sochitiettaikhoan.SoChiTietTaiKhoanBatch0\x01B\x81\x01\n*vn.softdreams.ebweb.grpc.sochitiettaikhoanB\x16SoChiTietTaiKhoanProtoP\x01Z9softdream.vn/go-gateway/internal/so_chi_tiet_tai_khoan/pbb\x06proto3"
 
 var (
 	file_sochitiettaikhoan_proto_rawDescOnce sync.Once
